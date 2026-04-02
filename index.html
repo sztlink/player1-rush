@@ -2,47 +2,83 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TOTEM CRT — Player 1</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
+  width: 100%;
+  height: 100%;
   background: #000;
   overflow: hidden;
-  font-family: 'Press Start 2P', monospace;
-  width: 100%; height: 100%;
 }
-/* Grid 2×2 fixado nos 4 cantos */
-#dev-grid {
+/*
+  Cada TV: 640×480 (4:3). Grelha 2×2 = 1280×960; no ecrã 16:9/4K as células mostram barras (object-fit: contain).
+*/
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: 'Press Start 2P', monospace;
+  image-rendering: pixelated;
+}
+#dev-wrap {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  flex-shrink: 0;
+}
+#output {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+/* 4 TVs 640×480 (4:3) — contain evita esticar dentro da célula */
+.dev-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  position: fixed;
-  inset: 0;
+  width: 100%;
+  height: 100%;
   gap: 2px;
   background: #111;
 }
-#dev-grid canvas {
+.dev-grid canvas {
   width: 100%;
   height: 100%;
-  min-width: 0;
-  min-height: 0;
   display: block;
+  object-fit: contain;
+  object-position: center;
   background: #050510;
 }
-/* Timer global centralizado */
+.dev-label {
+  position: absolute;
+  color: #0ff;
+  font-size: 8px;
+  padding: 4px;
+  background: rgba(0,0,0,0.8);
+  pointer-events: none;
+}
 #timer-global {
   position: fixed;
-  top: 8px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
   color: #0ff;
-  font-size: 14px;
+  font-size: 16px;
   z-index: 100;
   text-shadow: 0 0 10px #0ff;
-  display: none;
-  pointer-events: none;
+}
+#debug-info {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  color: #444;
+  font-size: 6px;
+  z-index: 100;
 }
 </style>
 </head>
@@ -50,18 +86,19 @@ html, body {
 
 <div id="timer-global"></div>
 
-<!--
-  Layout da torre (ordem física de baixo pra cima):
-  [tv4][tv3]  ← superiores (níveis 4 e 3)
-  [tv2][tv1]  ← inferiores (níveis 2 e 1)
-  TV1 = bottom-right = CyberRun (Minhoso)
--->
-<div id="dev-grid">
-  <canvas id="tv4" width="640" height="480"></canvas>
-  <canvas id="tv3" width="640" height="480"></canvas>
-  <canvas id="tv2" width="640" height="480"></canvas>
-  <canvas id="tv1" width="640" height="480"></canvas>
+<div id="dev-wrap">
+  <div class="dev-grid" id="dev-grid">
+    <canvas id="tv4" width="640" height="480"></canvas>
+    <canvas id="tv3" width="640" height="480"></canvas>
+    <canvas id="tv2" width="640" height="480"></canvas>
+    <canvas id="tv1" width="640" height="480"></canvas>
+  </div>
 </div>
+
+<!-- Production mode: 1 canvas 4K composto (hidden in dev) -->
+<canvas id="output" width="3840" height="2160" style="display:none;"></canvas>
+
+<div id="debug-info"></div>
 
 <script type="module" src="src/main.js"></script>
 </body>

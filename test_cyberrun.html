@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>CYBER RUN — Teste</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: monospace; }
+canvas { border: 2px solid #0ff; display: block; image-rendering: pixelated; }
+#info { color: #0ff; font-size: 11px; margin-top: 8px; text-align: center; }
+#state { color: #ff0; font-size: 10px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="640" height="480"></canvas>
+<div id="info">← → mover &nbsp;|&nbsp; ↑ / Space pular &nbsp;|&nbsp; Enter reiniciar</div>
+<div id="state">state: idle</div>
+
+<script type="module">
+import cyberrun from './src/games/cyberrun.js';
+
+const canvas = document.getElementById('c');
+const stateEl = document.getElementById('state');
+
+// Objeto de input
+const inp = { left: false, right: false, up: false, down: false, buttonA: false, buttonB: false, start: false };
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'ArrowLeft')  inp.left    = true;
+  if (e.code === 'ArrowRight') inp.right   = true;
+  if (e.code === 'ArrowUp')    { inp.up = true; inp.buttonA = true; }
+  if (e.code === 'Space')      { inp.up = true; inp.buttonA = true; e.preventDefault(); }
+  if (e.code === 'Enter')      { cyberrun.reset(); }
+  if (['ArrowLeft','ArrowRight','ArrowUp'].includes(e.code)) e.preventDefault();
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'ArrowLeft')  inp.left    = false;
+  if (e.code === 'ArrowRight') inp.right   = false;
+  if (e.code === 'ArrowUp')    { inp.up = false; inp.buttonA = false; }
+  if (e.code === 'Space')      { inp.up = false; inp.buttonA = false; }
+});
+
+// Init
+cyberrun.init(canvas, inp);
+
+// Loop
+function loop(ts) {
+  cyberrun.update(ts);
+  cyberrun.render(canvas.getContext('2d'));
+  stateEl.textContent = 'state: ' + cyberrun.getState() + '  |  Enter = restart';
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
