@@ -1,38 +1,34 @@
 /**
  * Orquestrador do Totem CRT
- * 
- * Gerencia a máquina de estados, o timer global, as transições
- * entre níveis e o ranking. Cada TV = 1 canvas = 1 game.
- * 
- * MINHOSO: NÃO EDITAR ESTE ARQUIVO.
- * Seu trabalho fica em src/games/cyberrun.js
+ *
+ * Máquina de estados: idle → countdown → playing → transition → victory
+ * Cada TV é um canvas 640×480. Os jogos renderizam direto neles.
+ * O orquestrador cuida do countdown, transições, timer global e vitória.
  */
 
 import cyberrun from './games/cyberrun.js';
-import nave from './games/nave.js';
-import corrida from './games/corrida.js';
-import luta from './games/luta.js';
+import nave     from './games/nave.js';
+import corrida  from './games/corrida.js';
+import luta     from './games/luta.js';
 import { poll, getState as getInput } from './input.js';
 
-// Games na ordem da torre (índice 0 = nível 1 = TV de baixo)
-const GAMES = [cyberrun, nave, corrida, luta];
+// Jogos na ordem da torre: índice 0 = TV1 = nível 1 (CyberRun)
+const GAMES  = [cyberrun, nave, corrida, luta];
 const TV_IDS = ['tv1', 'tv2', 'tv3', 'tv4'];
 
-// ============================================================
-// ESTADO
-// ============================================================
-let gameState = 'idle';  // idle | countdown | playing | transition | victory
-let currentLevel = 0;    // 0-3 (qual game está ativo)
-let globalTimer = 0;     // tempo total em ms
-let timerStart = 0;
+// Estado
+let gameState      = 'idle';
+let currentLevel   = 0;
+let globalTimer    = 0;
+let timerStart     = 0;
 let countdownValue = 3;
 let countdownStart = 0;
 let transitionStart = 0;
-let victoryStart = 0;
+let victoryStart   = 0;
 
-// Canvases
-const canvases = [];
-const contexts = [];
+// DOM
+let canvases = [];
+let contexts = [];
 
 // Ranking
 let ranking = loadRanking();
@@ -41,51 +37,37 @@ let ranking = loadRanking();
 // INIT
 // ============================================================
 export function init() {
-  // Pegar os 4 canvases
-  for (const id of TV_IDS) {
+  TV_IDS.forEach((id, i) => {
     const c = document.getElementById(id);
     canvases.push(c);
     contexts.push(c.getContext('2d'));
-  }
+  });
 
-  // Inicializar todos os games com seus canvases
+  // Inicializa todos os jogos
   GAMES.forEach((game, i) => {
     game.init(canvases[i], getInput());
   });
 
   gameState = 'idle';
-  console.log('[Totem] Orquestrador iniciado. PRESS START.');
+  console.log('[Totem] Pronto. PRESS START.');
 }
 
 // ============================================================
-// MAIN LOOP
+// TICK
 // ============================================================
 export function tick() {
   const input = poll();
-  const now = performance.now();
+  const now   = performance.now();
 
   switch (gameState) {
-    case 'idle':
-      updateIdle(input, now);
-      break;
-    case 'countdown':
-      updateCountdown(input, now);
-      break;
-    case 'playing':
-      updatePlaying(input, now);
-      break;
-    case 'transition':
-      updateTransition(input, now);
-      break;
-    case 'victory':
-      updateVictory(input, now);
-      break;
+    case 'idle':       updateIdle(input, now);      break;
+    case 'countdown':  updateCountdown(input, now); break;
+    case 'playing':    updatePlaying(input, now);   break;
+    case 'transition': updateTransition(now);       break;
+    case 'victory':    updateVictory(now);          break;
   }
 
-  // Render todas as TVs
   renderAll(now);
-
-  // Timer display
   updateTimerDisplay();
 }
 
@@ -93,26 +75,20 @@ export function tick() {
 // STATES
 // ============================================================
 function updateIdle(input, now) {
-  // Qualquer botão → countdown
   if (input.start || input.buttonA || input.buttonB) {
-    gameState = 'countdown';
+    gameState      = 'countdown';
     countdownValue = 3;
     countdownStart = now;
-    currentLevel = 0;
-
-    // Reset todos os games
+    currentLevel   = 0;
     GAMES.forEach(g => g.reset());
-
-    console.log('[Totem] Countdown iniciado!');
+    console.log('[Totem] Countdown!');
   }
 }
 
 function updateCountdown(input, now) {
-  const elapsed = now - countdownStart;
-  countdownValue = 3 - Math.floor(elapsed / 1000);
-
+  countdownValue = 3 - Math.floor((now - countdownStart) / 1000);
   if (countdownValue <= 0) {
-    gameState = 'playing';
+    gameState  = 'playing';
     timerStart = now;
     globalTimer = 0;
     console.log('[Totem] GO! Nível 1 —', GAMES[0].name);
@@ -121,49 +97,37 @@ function updateCountdown(input, now) {
 
 function updatePlaying(input, now) {
   globalTimer = now - timerStart;
-
-  // Update o game ativo
   const activeGame = GAMES[currentLevel];
-  activeGame.update(16.67); // ~60fps
+  activeGame.update(16.67);
 
-  // Verificar se completou
   if (activeGame.getState() === 'won') {
     if (currentLevel < GAMES.length - 1) {
-      // Próximo nível
-      gameState = 'transition';
+      gameState      = 'transition';
       transitionStart = now;
-      console.log(`[Totem] Nível ${currentLevel + 1} completo! Transição...`);
+      console.log(`[Totem] Nível ${currentLevel + 1} completo!`);
     } else {
-      // Vitória final!
-      gameState = 'victory';
+      gameState    = 'victory';
       victoryStart = now;
-      const totalTime = globalTimer / 1000;
-      addToRanking(totalTime);
-      console.log(`[Totem] VITÓRIA! Tempo: ${totalTime.toFixed(1)}s`);
+      addToRanking(globalTimer / 1000);
+      console.log('[Totem] VITÓRIA! Tempo:', (globalTimer / 1000).toFixed(1) + 's');
     }
   }
 }
 
-function updateTransition(input, now) {
-  const elapsed = now - transitionStart;
-
-  // Transição de 1.5 segundos
-  if (elapsed > 1500) {
+function updateTransition(now) {
+  if (now - transitionStart > 1800) {
     currentLevel++;
     GAMES[currentLevel].reset();
-    gameState = 'playing';
-    timerStart = now - globalTimer; // manter o timer global correndo
+    gameState  = 'playing';
+    timerStart = now - globalTimer;
     console.log(`[Totem] Nível ${currentLevel + 1} —`, GAMES[currentLevel].name);
   }
 }
 
-function updateVictory(input, now) {
-  const elapsed = now - victoryStart;
-
-  // Depois de 10s, volta pro idle
-  if (elapsed > 10000) {
+function updateVictory(now) {
+  if (now - victoryStart > 12000) {
     gameState = 'idle';
-    console.log('[Totem] Voltando ao IDLE.');
+    console.log('[Totem] Voltando ao idle.');
   }
 }
 
@@ -172,160 +136,134 @@ function updateVictory(input, now) {
 // ============================================================
 function renderAll(now) {
   GAMES.forEach((game, i) => {
-    const c = contexts[i];
+    const ctx = contexts[i];
+    const W = canvases[i].width;
+    const H = canvases[i].height;
 
     if (gameState === 'idle') {
-      game.renderIdle(c);
-      // Ranking na TV do topo
-      if (i === 3) renderRanking(c);
+      game.renderIdle(ctx);
+      if (i === 0) renderPressStart(ctx, W, H, now);
     }
     else if (gameState === 'countdown') {
-      game.renderIdle(c);
-      // Countdown no nível 1
-      if (i === 0) renderCountdown(c);
+      game.renderIdle(ctx);
+      if (i === 0) renderCountdown(ctx, W, H);
     }
     else if (gameState === 'playing') {
-      if (i === currentLevel) {
-        // TV ativa: renderizar o game
-        game.render(c);
-      } else if (i < currentLevel) {
-        // TV completada: mostrar "COMPLETE"
-        renderCompleted(c, game, i);
-      } else {
-        // TV futura: idle/teaser
-        game.renderIdle(c);
-      }
+      if (i === currentLevel)     game.render(ctx);
+      else if (i < currentLevel)  renderCompleted(ctx, W, H, game.name, i, now);
+      else                        game.renderIdle(ctx);
     }
     else if (gameState === 'transition') {
-      if (i === currentLevel) {
-        // TV que acabou de ser completada: efeito de transição
-        renderTransitionEffect(c, now);
-      } else if (i === currentLevel + 1) {
-        // Próxima TV: ativando
-        renderActivating(c, GAMES[i], now);
-      } else if (i < currentLevel) {
-        renderCompleted(c, game, i);
-      } else {
-        game.renderIdle(c);
-      }
+      if (i === currentLevel)         renderTransitionFlash(ctx, W, H, now);
+      else if (i === currentLevel + 1) renderActivating(ctx, W, H, GAMES[i], now);
+      else if (i < currentLevel)       renderCompleted(ctx, W, H, game.name, i, now);
+      else                             game.renderIdle(ctx);
     }
     else if (gameState === 'victory') {
-      renderVictoryScreen(c, i, now);
+      renderVictory(ctx, W, H, i, now);
     }
   });
 }
 
-function renderCountdown(ctx) {
-  ctx.fillStyle = '#000';
-  ctx.globalAlpha = 0.7;
-  ctx.fillRect(0, 0, 640, 480);
-  ctx.globalAlpha = 1;
-
-  ctx.fillStyle = '#0ff';
-  ctx.font = '48px "Press Start 2P",monospace';
-  ctx.textAlign = 'center';
-  const text = countdownValue > 0 ? countdownValue.toString() : 'GO!';
-  ctx.fillText(text, 320, 260);
-  ctx.textAlign = 'left';
+// ============================================================
+// OVERLAYS
+// ============================================================
+function renderPressStart(ctx, W, H, now) {
+  if (Math.floor(now / 700) % 2 === 0) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,255,255,0.9)';
+    ctx.font = `${Math.round(H * 0.055)}px "Press Start 2P",monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('PRESS START', W / 2, H - Math.round(H * 0.05));
+    ctx.restore();
+  }
 }
 
-function renderCompleted(ctx, game, level) {
-  ctx.fillStyle = '#050518';
-  ctx.fillRect(0, 0, 640, 480);
+function renderCountdown(ctx, W, H) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, H);
+  const text = countdownValue > 0 ? String(countdownValue) : 'GO!';
+  ctx.fillStyle = '#0ff';
+  ctx.font = `${Math.round(H * 0.3)}px "Press Start 2P",monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, W / 2, H / 2);
+  ctx.restore();
+}
+
+function renderCompleted(ctx, W, H, name, level, now) {
+  // Mantém o último frame do jogo visível, escurece levemente
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,5,20,0.6)';
+  ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#0f8';
-  ctx.font = '10px "Press Start 2P",monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(`✓ ${game.name}`, 320, 230);
+  ctx.font = `${Math.round(H * 0.07)}px "Press Start 2P",monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(`✓ ${name}`, W / 2, H / 2 - H * 0.05);
   ctx.fillStyle = '#0ff';
-  ctx.font = '7px "Press Start 2P",monospace';
-  ctx.fillText('COMPLETE', 320, 260);
-  ctx.textAlign = 'left';
+  ctx.font = `${Math.round(H * 0.05)}px "Press Start 2P",monospace`;
+  ctx.fillText('COMPLETE', W / 2, H / 2 + H * 0.07);
+  ctx.restore();
 }
 
-function renderTransitionEffect(ctx, now) {
-  const elapsed = now - transitionStart;
-  const flash = Math.sin(elapsed * 0.02) > 0;
-  ctx.fillStyle = flash ? '#0ff' : '#f0f';
-  ctx.fillRect(0, 0, 640, 480);
+function renderTransitionFlash(ctx, W, H, now) {
+  const t = now - transitionStart;
+  const flash = Math.sin(t * 0.02) > 0;
+  ctx.save();
+  ctx.fillStyle = flash ? 'rgba(0,255,255,0.5)' : 'rgba(255,0,255,0.5)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
 }
 
-function renderActivating(ctx, game, now) {
+function renderActivating(ctx, W, H, game, now) {
   const elapsed = now - transitionStart;
-  const alpha = Math.min(1, elapsed / 1500);
-  ctx.fillStyle = '#050518';
-  ctx.fillRect(0, 0, 640, 480);
+  const alpha = Math.min(1, elapsed / 1800);
+  ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle = '#0ff';
-  ctx.font = '10px "Press Start 2P",monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(`NÍVEL ${game.difficulty}`, 320, 220);
-  ctx.fillText(game.name, 320, 250);
-  ctx.globalAlpha = 1;
-  ctx.textAlign = 'left';
+  ctx.font = `${Math.round(H * 0.07)}px "Press Start 2P",monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(`NÍVEL ${game.difficulty}`, W / 2, H / 2 - H * 0.05);
+  ctx.fillText(game.name, W / 2, H / 2 + H * 0.07);
+  ctx.restore();
 }
 
-function renderVictoryScreen(ctx, tvIndex, now) {
-  const elapsed = now - victoryStart;
-  const flash = Math.floor(elapsed / 200) % 4;
+function renderVictory(ctx, W, H, tvIdx, now) {
+  const t = now - victoryStart;
   const colors = ['#0ff', '#f0f', '#ff0', '#0f8'];
-
-  ctx.fillStyle = '#050518';
-  ctx.fillRect(0, 0, 640, 480);
-
-  ctx.fillStyle = colors[flash];
-  ctx.font = '12px "Press Start 2P",monospace';
-  ctx.textAlign = 'center';
-
-  if (tvIndex === 3) {
-    // TV do topo: tempo final + ranking
-    ctx.fillText('★ VITÓRIA ★', 320, 180);
+  const flash  = colors[Math.floor(t / 180) % colors.length];
+  ctx.save();
+  ctx.fillStyle = 'rgba(5,5,24,0.85)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = flash;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (tvIdx === 3) {
+    ctx.font = `${Math.round(H * 0.09)}px "Press Start 2P",monospace`;
+    ctx.fillText('★ VITÓRIA ★', W / 2, H * 0.22);
     ctx.fillStyle = '#fff';
-    ctx.font = '16px "Press Start 2P",monospace';
-    ctx.fillText((globalTimer / 1000).toFixed(1) + 's', 320, 230);
+    ctx.font = `${Math.round(H * 0.12)}px "Press Start 2P",monospace`;
+    ctx.fillText((globalTimer / 1000).toFixed(1) + 's', W / 2, H * 0.42);
     ctx.fillStyle = '#0ff';
-    ctx.font = '8px "Press Start 2P",monospace';
-    ctx.fillText('RANKING DO DIA', 320, 290);
-    renderRankingList(ctx, 310);
-  } else {
-    ctx.fillText('★ ★ ★', 320, 240);
-  }
-  ctx.textAlign = 'left';
-}
-
-function renderRanking(ctx) {
-  ctx.fillStyle = '#050518';
-  ctx.fillRect(0, 0, 640, 480);
-  ctx.fillStyle = '#0ff';
-  ctx.font = '10px "Press Start 2P",monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('RANKING DO DIA', 320, 80);
-  renderRankingList(ctx, 120);
-  ctx.textAlign = 'left';
-}
-
-function renderRankingList(ctx, startY) {
-  ctx.font = '8px "Press Start 2P",monospace';
-  ctx.textAlign = 'center';
-  if (ranking.length === 0) {
-    ctx.fillStyle = '#444';
-    ctx.fillText('SEM RECORDES AINDA', 320, startY + 30);
-  } else {
-    ranking.slice(0, 10).forEach((entry, i) => {
-      const color = i === 0 ? '#ff0' : i < 3 ? '#0ff' : '#aaa';
-      ctx.fillStyle = color;
-      ctx.fillText(`${(i + 1).toString().padStart(2)}. ${entry.name} — ${entry.time.toFixed(1)}s`, 320, startY + i * 22);
+    ctx.font = `${Math.round(H * 0.045)}px "Press Start 2P",monospace`;
+    ctx.fillText('RANKING', W / 2, H * 0.58);
+    ranking.slice(0, 5).forEach((r, ri) => {
+      ctx.fillStyle = ri === 0 ? '#ff0' : ri < 3 ? '#0ff' : '#888';
+      ctx.font = `${Math.round(H * 0.038)}px "Press Start 2P",monospace`;
+      ctx.fillText(`${ri + 1}. ${r.time.toFixed(1)}s`, W / 2, H * 0.67 + ri * H * 0.065);
     });
+  } else {
+    ctx.font = `${Math.round(H * 0.09)}px "Press Start 2P",monospace`;
+    ctx.fillText('★ ★ ★', W / 2, H / 2);
   }
-  ctx.textAlign = 'left';
+  ctx.restore();
 }
 
 // ============================================================
-// TIMER DISPLAY
+// TIMER
 // ============================================================
 function updateTimerDisplay() {
   const el = document.getElementById('timer-global');
   if (!el) return;
-
   if (gameState === 'playing' || gameState === 'transition') {
     el.textContent = (globalTimer / 1000).toFixed(1) + 's';
     el.style.display = 'block';
@@ -341,19 +279,15 @@ function updateTimerDisplay() {
 // RANKING
 // ============================================================
 function loadRanking() {
-  try {
-    const data = localStorage.getItem('totem-crt-ranking');
-    if (data) return JSON.parse(data);
-  } catch (e) {}
+  try { const d = localStorage.getItem('totem-crt-ranking'); if (d) return JSON.parse(d); }
+  catch (e) {}
   return [];
 }
-
 function saveRanking() {
   localStorage.setItem('totem-crt-ranking', JSON.stringify(ranking));
 }
-
-function addToRanking(time) {
-  ranking.push({ name: 'AAA', time }); // TODO: input de 3 letras
+function addToRanking(totalTime) {
+  ranking.push({ time: totalTime });
   ranking.sort((a, b) => a.time - b.time);
   ranking = ranking.slice(0, 10);
   saveRanking();

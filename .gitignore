@@ -2,3 +2,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.log
+diag.html
+test.html
+games/
+src/games/cyberrun-engine.js

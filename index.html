@@ -2,61 +2,47 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TOTEM CRT — Player 1</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body {
+html, body {
   background: #000;
   overflow: hidden;
   font-family: 'Press Start 2P', monospace;
-  image-rendering: pixelated;
+  width: 100%; height: 100%;
 }
-#output {
-  width: 100vw;
-  height: 100vh;
-  display: block;
-}
-/* Dev mode: mostra as 4 TVs em grid */
-.dev-grid {
+/* Grid 2×2 fixado nos 4 cantos */
+#dev-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  width: 100vw;
-  height: 100vh;
+  position: fixed;
+  inset: 0;
   gap: 2px;
   background: #111;
 }
-.dev-grid canvas {
+#dev-grid canvas {
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: block;
   background: #050510;
 }
-.dev-label {
-  position: absolute;
-  color: #0ff;
-  font-size: 8px;
-  padding: 4px;
-  background: rgba(0,0,0,0.8);
-  pointer-events: none;
-}
+/* Timer global centralizado */
 #timer-global {
   position: fixed;
-  top: 10px;
+  top: 8px;
   left: 50%;
   transform: translateX(-50%);
   color: #0ff;
-  font-size: 16px;
+  font-size: 14px;
   z-index: 100;
   text-shadow: 0 0 10px #0ff;
-}
-#debug-info {
-  position: fixed;
-  bottom: 10px;
-  right: 10px;
-  color: #444;
-  font-size: 6px;
-  z-index: 100;
+  display: none;
+  pointer-events: none;
 }
 </style>
 </head>
@@ -64,18 +50,18 @@ body {
 
 <div id="timer-global"></div>
 
-<!-- Dev mode: 4 canvases visíveis -->
-<div class="dev-grid" id="dev-grid">
+<!--
+  Layout da torre (ordem física de baixo pra cima):
+  [tv4][tv3]  ← superiores (níveis 4 e 3)
+  [tv2][tv1]  ← inferiores (níveis 2 e 1)
+  TV1 = bottom-right = CyberRun (Minhoso)
+-->
+<div id="dev-grid">
   <canvas id="tv4" width="640" height="480"></canvas>
   <canvas id="tv3" width="640" height="480"></canvas>
   <canvas id="tv2" width="640" height="480"></canvas>
   <canvas id="tv1" width="640" height="480"></canvas>
 </div>
-
-<!-- Production mode: 1 canvas 4K composto (hidden in dev) -->
-<canvas id="output" width="3840" height="2160" style="display:none;"></canvas>
-
-<div id="debug-info"></div>
 
 <script type="module" src="src/main.js"></script>
 </body>
