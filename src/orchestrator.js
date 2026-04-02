@@ -11,6 +11,7 @@ import nave     from './games/nave.js';
 import corrida  from './games/corrida.js';
 import luta     from './games/luta.js';
 import { poll, getState as getInput } from './input.js';
+import { submitScore, getTop } from './ranking.js';
 
 // Jogos na ordem da torre: índice 0 = TV1 = nível 1 (CyberRun)
 const GAMES  = [cyberrun, nave, corrida, luta];
@@ -26,11 +27,19 @@ let countdownStart = 0;
 let transitionStart = 0;
 let victoryStart   = 0;
 
+// Name entry (após vitória)
+let nameEntry = { active: false, letters: ['A','A','A'], pos: 0, done: false, submitted: false };
+let rankingData = [];
+const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+// Debounce de input para name entry
+let nameInputCooldown = 0;
+
 // DOM
 let canvases = [];
 let contexts = [];
 
-// Ranking
+// Ranking local (fallback se servidor não responder)
 let ranking = loadRanking();
 
 // ============================================================
@@ -125,10 +134,59 @@ function updateTransition(now) {
 }
 
 function updateVictory(now) {
-  if (now - victoryStart > 12000) {
+  const elapsed = now - victoryStart;
+
+  // Fase 1: 2s de flash de vitória antes de mostrar name entry
+  if (elapsed < 2000) return;
+
+  // Fase 2: name entry
+  if (!nameEntry.done) {
+    updateNameEntry();
+    return;
+  }
+
+  // Fase 3: após nome confirmado, mostrar ranking por 10s depois volta ao idle
+  if (elapsed > 2000 + 15000) {
     gameState = 'idle';
+    nameEntry = { active: false, letters: ['A','A','A'], pos: 0, done: false, submitted: false };
     console.log('[Totem] Voltando ao idle.');
   }
+}
+
+function updateNameEntry() {
+  if (nameInputCooldown > 0) { nameInputCooldown--; return; }
+  const inp = getInput();
+  const ne  = nameEntry;
+
+  if (inp.up)    { ne.letters[ne.pos] = prevChar(ne.letters[ne.pos]); nameInputCooldown = 10; }
+  if (inp.down)  { ne.letters[ne.pos] = nextChar(ne.letters[ne.pos]); nameInputCooldown = 10; }
+  if (inp.left  && ne.pos > 0) { ne.pos--; nameInputCooldown = 12; }
+  if ((inp.right || inp.buttonA) && ne.pos < 2) { ne.pos++; nameInputCooldown = 12; }
+  if ((inp.buttonA || inp.start) && ne.pos === 2 && !ne.submitted) {
+    ne.done = true;
+    ne.submitted = true;
+    const playerName = ne.letters.join('');
+    const totalTime  = globalTimer / 1000;
+    const totalScore = ranking.length > 0 ? 0 : 0; // score calculado nos jogos
+    submitScore({ name: playerName, time: totalTime, score: totalScore })
+      .then(entry => {
+        console.log('[ranking] salvo:', entry);
+        return getTop(10);
+      })
+      .then(top => { rankingData = top; })
+      .catch(() => {});
+    // Carregar ranking local também
+    getTop(10).then(top => { rankingData = top; }).catch(() => {});
+  }
+}
+
+function nextChar(c) {
+  const i = CHARS.indexOf(c);
+  return CHARS[(i + 1) % CHARS.length];
+}
+function prevChar(c) {
+  const i = CHARS.indexOf(c);
+  return CHARS[(i - 1 + CHARS.length) % CHARS.length];
 }
 
 // ============================================================
@@ -229,33 +287,87 @@ function renderActivating(ctx, W, H, game, now) {
 }
 
 function renderVictory(ctx, W, H, tvIdx, now) {
-  const t = now - victoryStart;
-  const colors = ['#0ff', '#f0f', '#ff0', '#0f8'];
-  const flash  = colors[Math.floor(t / 180) % colors.length];
+  const t       = now - victoryStart;
+  const colors  = ['#0ff', '#f0f', '#ff0', '#0f8'];
+  const flash   = colors[Math.floor(t / 180) % colors.length];
+  const phase2  = t > 2000; // após 2s mostra name entry
+  const ne      = nameEntry;
+
   ctx.save();
-  ctx.fillStyle = 'rgba(5,5,24,0.85)';
+  ctx.fillStyle = 'rgba(5,5,24,0.92)';
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = flash;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
   if (tvIdx === 3) {
-    ctx.font = `${Math.round(H * 0.09)}px "Press Start 2P",monospace`;
-    ctx.fillText('★ VITÓRIA ★', W / 2, H * 0.22);
-    ctx.fillStyle = '#fff';
-    ctx.font = `${Math.round(H * 0.12)}px "Press Start 2P",monospace`;
-    ctx.fillText((globalTimer / 1000).toFixed(1) + 's', W / 2, H * 0.42);
-    ctx.fillStyle = '#0ff';
-    ctx.font = `${Math.round(H * 0.045)}px "Press Start 2P",monospace`;
-    ctx.fillText('RANKING', W / 2, H * 0.58);
-    ranking.slice(0, 5).forEach((r, ri) => {
-      ctx.fillStyle = ri === 0 ? '#ff0' : ri < 3 ? '#0ff' : '#888';
-      ctx.font = `${Math.round(H * 0.038)}px "Press Start 2P",monospace`;
-      ctx.fillText(`${ri + 1}. ${r.time.toFixed(1)}s`, W / 2, H * 0.67 + ri * H * 0.065);
-    });
+    // TV4 — topo: ranking + name entry
+    if (!phase2 || !ne.done) {
+      // Flash de vitória
+      ctx.fillStyle = flash;
+      ctx.font = `${Math.round(H*0.08)}px "Press Start 2P",monospace`;
+      ctx.fillText('★ VITÓRIA ★', W/2, H*0.18);
+      ctx.fillStyle = '#fff';
+      ctx.font = `${Math.round(H*0.11)}px "Press Start 2P",monospace`;
+      ctx.fillText((globalTimer/1000).toFixed(1)+'s', W/2, H*0.35);
+    }
+
+    if (phase2 && !ne.done) {
+      // Name entry
+      renderNameEntry(ctx, W, H);
+    }
+
+    if (ne.done) {
+      // Ranking
+      ctx.fillStyle = '#0ff';
+      ctx.font = `${Math.round(H*0.055)}px "Press Start 2P",monospace`;
+      ctx.fillText('TOP TIMES', W/2, H*0.1);
+      const data = rankingData.length > 0 ? rankingData : ranking;
+      data.slice(0,7).forEach((r, ri) => {
+        const isNew = r.name === ne.letters.join('') && Math.abs(r.time - globalTimer/1000) < 0.5;
+        ctx.fillStyle = ri===0?'#ff0': isNew?'#0f8' : ri<3?'#0ff':'#888';
+        ctx.font = `${Math.round(H*0.042)}px "Press Start 2P",monospace`;
+        const medal = ri===0?'★':ri===1?'▲':ri===2?'●':` ${ri+1}`;
+        ctx.fillText(`${medal} ${r.name}  ${(+r.time).toFixed(1)}s`, W/2, H*0.22 + ri*H*0.11);
+      });
+    }
   } else {
-    ctx.font = `${Math.round(H * 0.09)}px "Press Start 2P",monospace`;
-    ctx.fillText('★ ★ ★', W / 2, H / 2);
+    // TV1/2/3 — estrelas piscando
+    ctx.fillStyle = flash;
+    ctx.font = `${Math.round(H*0.09)}px "Press Start 2P",monospace`;
+    ctx.fillText(tvIdx===0?'LEVEL 1 ✓':tvIdx===1?'LEVEL 2 ✓':'LEVEL 3 ✓', W/2, H/2);
   }
   ctx.restore();
+}
+
+function renderNameEntry(ctx, W, H) {
+  const ne = nameEntry;
+  ctx.fillStyle = 'rgba(0,0,10,0.6)';
+  ctx.fillRect(W*0.1, H*0.45, W*0.8, H*0.45);
+  ctx.strokeStyle = '#0ff'; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+  ctx.strokeRect(W*0.1, H*0.45, W*0.8, H*0.45); ctx.globalAlpha = 1;
+
+  ctx.fillStyle = '#0ff7';
+  ctx.font = `${Math.round(H*0.05)}px "Press Start 2P",monospace`;
+  ctx.fillText('SEU NOME', W/2, H*0.52);
+
+  // 3 letras
+  const boxW = 48, boxH = 56, gap = 16;
+  const startX = W/2 - (boxW*3 + gap*2)/2;
+  ne.letters.forEach((ch, i) => {
+    const bx = startX + i*(boxW+gap);
+    const by = H*0.58;
+    const active = i === ne.pos;
+    ctx.fillStyle = active ? '#0ff' : '#0a0a2a';
+    ctx.fillRect(bx, by, boxW, boxH);
+    ctx.strokeStyle = active ? '#fff' : '#0ff5'; ctx.lineWidth = active ? 2 : 1;
+    ctx.strokeRect(bx, by, boxW, boxH);
+    ctx.fillStyle = active ? '#000' : '#0ff';
+    ctx.font = `${Math.round(H*0.1)}px "Press Start 2P",monospace`;
+    ctx.fillText(ch, bx+boxW/2, by+boxH/2);
+  });
+
+  ctx.fillStyle = '#0ff5';
+  ctx.font = `${Math.round(H*0.035)}px "Press Start 2P",monospace`;
+  ctx.fillText('↑↓ letra   →/A confirma', W/2, H*0.88);
 }
 
 // ============================================================

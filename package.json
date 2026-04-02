@@ -4,9 +4,9 @@
   "description": "Totem CRT — Player 1, Farol Santander",
   "main": "src/main.js",
   "scripts": {
-    "dev": "npx serve . -p 3000",
-    "start": "electron .",
-    "calibrate": "electron . --calibrate"
+    "dev":    "node ../server.js 3000",
+    "start":  "electron .",
+    "build":  "electron-builder"
   },
   "devDependencies": {
     "electron": "^30.0.0"
