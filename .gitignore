@@ -7,3 +7,7 @@ test.html
 games/
 src/games/cyberrun-engine.js
 ranking.json
+src/games/cyberrun_extracted_raw.js
+scripts/build_cyberrun.py
+test_cyberrun.html
+servir.bat

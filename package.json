@@ -4,7 +4,7 @@
   "description": "Totem CRT — Player 1, Farol Santander",
   "main": "src/main.js",
   "scripts": {
-    "dev": "npx serve . -p 3000",
+    "dev": "node ../server.js 3000",
     "dev:py": "python -m http.server 3000",
     "start": "electron .",
     "calibrate": "electron . --calibrate"
