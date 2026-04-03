@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PLAYER 1 — Símbolos</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; color: #fff; font-family: 'JetBrains Mono', 'Roboto Mono', monospace; display: flex; flex-direction: column; align-items: center; padding: 40px; gap: 60px; }
+  h1 { font-size: 14px; letter-spacing: 8px; text-transform: uppercase; opacity: 0.4; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+  .symbol { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .symbol canvas { background: #000; }
+  .symbol .label { font-size: 11px; letter-spacing: 6px; text-transform: uppercase; opacity: 0.5; }
+  .controls { display: flex; gap: 16px; margin-top: 20px; }
+  .controls button { background: #222; color: #fff; border: 1px solid #333; padding: 8px 20px; font-family: inherit; font-size: 11px; letter-spacing: 2px; cursor: pointer; text-transform: uppercase; }
+  .controls button:hover { background: #333; }
+</style>
+</head>
+<body>
+
+<h1>Player 1 — Gramática Visual</h1>
+
+<div class="grid">
+  <div class="symbol">
+    <canvas id="strike" width="512" height="512"></canvas>
+    <div class="label">Strike</div>
+  </div>
+  <div class="symbol">
+    <canvas id="drift" width="512" height="512"></canvas>
+    <div class="label">Drift</div>
+  </div>
+  <div class="symbol">
+    <canvas id="trace" width="512" height="512"></canvas>
+    <div class="label">Trace</div>
+  </div>
+  <div class="symbol">
+    <canvas id="rush" width="512" height="512"></canvas>
+    <div class="label">Rush</div>
+  </div>
+</div>
+
+<div class="controls">
+  <button onclick="regenerate()">Regenerar</button>
+  <button onclick="exportAll()">Exportar PNGs</button>
+</div>
+
+<script>
+// ============================================================
+// STRIKE — linhas explodindo de um centro
+// Comportamento: projetar força. Expansão radial assimétrica.
+// ============================================================
+function drawStrike(ctx, w, h) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  const numRays = 40 + Math.floor(Math.random() * 20);
+
+  for (let i = 0; i < numRays; i++) {
+    const angle = (Math.PI * 2 * i / numRays) + (Math.random() - 0.5) * 0.15;
+    const innerR = 8 + Math.random() * 20;
+    const outerR = 80 + Math.random() * 140;
+    const thickness = 0.5 + Math.random() * 2.5;
+
+    ctx.beginPath();
+    ctx.moveTo(
+      cx + Math.cos(angle) * innerR,
+      cy + Math.sin(angle) * innerR
+    );
+    ctx.lineTo(
+      cx + Math.cos(angle) * outerR,
+      cy + Math.sin(angle) * outerR
+    );
+    ctx.strokeStyle = `rgba(255,255,255,${0.4 + Math.random() * 0.6})`;
+    ctx.lineWidth = thickness;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  // fragmentos secundários — estilhaços menores
+  for (let i = 0; i < 15; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const r1 = 100 + Math.random() * 60;
+    const r2 = r1 + 10 + Math.random() * 30;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle) * r1, cy + Math.sin(angle) * r1);
+    ctx.lineTo(cx + Math.cos(angle) * r2, cy + Math.sin(angle) * r2);
+    ctx.strokeStyle = `rgba(255,255,255,${0.2 + Math.random() * 0.3})`;
+    ctx.lineWidth = 0.5 + Math.random();
+    ctx.stroke();
+  }
+}
+
+// ============================================================
+// DRIFT — linhas fluindo ao redor de um vazio
+// Comportamento: negociar espaço. Campo de força curvilíneo.
+// ============================================================
+function drawDrift(ctx, w, h) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  const voidRadius = 60;
+  const numLines = 80 + Math.floor(Math.random() * 40);
+
+  for (let i = 0; i < numLines; i++) {
+    // partícula começa em posição aleatória
+    let x = Math.random() * w;
+    let y = Math.random() * h;
+    const steps = 30 + Math.floor(Math.random() * 40);
+    const stepSize = 3;
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+
+    for (let s = 0; s < steps; s++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < voidRadius * 0.8) break;
+
+      // tangente ao círculo centrado no vazio — flui ao redor
+      const nx = -dy / dist;
+      const ny = dx / dist;
+
+      // leve atração/repulsão baseada na distância
+      const pull = voidRadius / dist;
+      const fx = nx + (dx / dist) * pull * 0.3;
+      const fy = ny + (dy / dist) * pull * 0.3;
+
+      const mag = Math.sqrt(fx * fx + fy * fy);
+      x += (fx / mag) * stepSize;
+      y += (fy / mag) * stepSize;
+
+      if (x < 0 || x > w || y < 0 || y > h) break;
+
+      ctx.lineTo(x, y);
+    }
+
+    const distFromCenter = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+    const alpha = Math.min(0.7, Math.max(0.1, 1 - distFromCenter / (w * 0.5)));
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = 0.5 + Math.random() * 0.8;
+    ctx.stroke();
+  }
+}
+
+// ============================================================
+// TRACE — grid sendo revelado / escaneado
+// Comportamento: explorar território. Retícula digital. Pixel.
+// ============================================================
+function drawTrace(ctx, w, h) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  const cellSize = 16;
+  const cols = Math.floor(w / cellSize);
+  const rows = Math.floor(h / cellSize);
+  const centerCol = Math.floor(cols / 2);
+  const centerRow = Math.floor(rows / 2);
+  const maxDist = Math.sqrt(centerCol * centerCol + centerRow * centerRow);
+
+  // mapa de "exploração" — região central mais revelada
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const dc = c - centerCol;
+      const dr = r - centerRow;
+      const dist = Math.sqrt(dc * dc + dr * dr);
+      const normDist = dist / maxDist;
+
+      // probabilidade de célula aparecer — mais perto do centro = mais provável
+      const prob = Math.pow(1 - normDist, 2.5) * 0.85;
+
+      if (Math.random() < prob) {
+        // células mais próximas = mais opacas
+        const alpha = Math.pow(1 - normDist, 1.5) * 0.9;
+
+        // variação: algumas células são outline, outras filled
+        const x = c * cellSize;
+        const y = r * cellSize;
+        const inset = 1;
+
+        if (Math.random() < 0.3) {
+          // outline — grid visível
+          ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.5})`;
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(x + inset, y + inset, cellSize - inset * 2, cellSize - inset * 2);
+        } else {
+          // filled
+          ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+          ctx.fillRect(x + inset, y + inset, cellSize - inset * 2, cellSize - inset * 2);
+        }
+      }
+    }
+  }
+
+  // cursor de scan — crosshair
+  const scanX = centerCol * cellSize + cellSize / 2;
+  const scanY = centerRow * cellSize + cellSize / 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(scanX, 0);
+  ctx.lineTo(scanX, h);
+  ctx.moveTo(0, scanY);
+  ctx.lineTo(w, scanY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// ============================================================
+// RUSH — vetor com velocidade / forward momentum
+// Comportamento: executar sob pressão. Seta + rastro. Pixel.
+// ============================================================
+function drawRush(ctx, w, h) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  const px = 8; // pixel size
+  const cx = Math.floor(w / (2 * px));
+  const cy = Math.floor(h / (2 * px));
+
+  function drawPixel(col, row, alpha = 1) {
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fillRect(col * px, row * px, px - 1, px - 1);
+  }
+
+  // seta principal — chevron apontando para direita
+  const arrowTip = cx + 6;
+  const arrowBody = [
+    // ponta
+    [arrowTip, cy],
+    [arrowTip - 1, cy - 1],
+    [arrowTip - 1, cy + 1],
+    [arrowTip - 2, cy - 2],
+    [arrowTip - 2, cy + 2],
+    [arrowTip - 3, cy - 3],
+    [arrowTip - 3, cy + 3],
+    // corpo
+    [arrowTip - 3, cy - 1],
+    [arrowTip - 3, cy],
+    [arrowTip - 3, cy + 1],
+    [arrowTip - 4, cy - 1],
+    [arrowTip - 4, cy],
+    [arrowTip - 4, cy + 1],
+    [arrowTip - 5, cy - 1],
+    [arrowTip - 5, cy],
+    [arrowTip - 5, cy + 1],
+    [arrowTip - 6, cy],
+    [arrowTip - 7, cy],
+  ];
+
+  arrowBody.forEach(([c, r]) => drawPixel(c, r, 1));
+
+  // speed lines — rastros horizontais atrás da seta
+  const numTrails = 8 + Math.floor(Math.random() * 6);
+  for (let i = 0; i < numTrails; i++) {
+    const trailY = cy + Math.floor((Math.random() - 0.5) * 12);
+    const trailStart = cx - 8 - Math.floor(Math.random() * 10);
+    const trailLen = 3 + Math.floor(Math.random() * 12);
+    const alpha = 0.15 + Math.random() * 0.5;
+
+    for (let j = 0; j < trailLen; j++) {
+      const fadeAlpha = alpha * (j / trailLen);
+      drawPixel(trailStart + j, trailY, fadeAlpha);
+    }
+  }
+
+  // partículas de debris — pixels soltos ao redor
+  for (let i = 0; i < 12; i++) {
+    const px2 = cx + Math.floor((Math.random() - 0.3) * 20);
+    const py2 = cy + Math.floor((Math.random() - 0.5) * 14);
+    drawPixel(px2, py2, 0.1 + Math.random() * 0.25);
+  }
+}
+
+// ============================================================
+// Render all
+// ============================================================
+function renderAll() {
+  const symbols = [
+    { id: 'strike', fn: drawStrike },
+    { id: 'drift', fn: drawDrift },
+    { id: 'trace', fn: drawTrace },
+    { id: 'rush', fn: drawRush },
+  ];
+
+  symbols.forEach(({ id, fn }) => {
+    const canvas = document.getElementById(id);
+    const ctx = canvas.getContext('2d');
+    fn(ctx, canvas.width, canvas.height);
+  });
+}
+
+function regenerate() {
+  renderAll();
+}
+
+function exportAll() {
+  ['strike', 'drift', 'trace', 'rush'].forEach(id => {
+    const canvas = document.getElementById(id);
+    const link = document.createElement('a');
+    link.download = `player1-${id}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+}
+
+renderAll();
+</script>
+</body>
+</html>
