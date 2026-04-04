@@ -44,9 +44,10 @@ function readGamepad() {
 function readKeyboard() {
   if (keysDown['ArrowLeft'])  state.left = true;
   if (keysDown['ArrowRight']) state.right = true;
-  if (keysDown['ArrowUp'] || keysDown['Space']) state.up = true;
+  // Seta ↑ = "up". buttonA no teclado = só Espaço (atirar na NAVE, pulo no CyberRun, etc.)
+  if (keysDown['ArrowUp']) state.up = true;
   if (keysDown['ArrowDown'])  state.down = true;
-  if (keysDown['KeyZ'] || keysDown['Space']) state.buttonA = true;
+  if (keysDown['Space']) state.buttonA = true;
   if (keysDown['KeyX']) state.buttonB = true;
   if (keysDown['Enter']) state.start = true;
 }

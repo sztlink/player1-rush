@@ -114,7 +114,8 @@ function updateIdle(input, now) {
     countdownStart = now;
     currentLevel = 0;
 
-    // Reset todos os games
+    // Limpar áudio de qualquer game anterior e resetar
+    GAMES.forEach(g => { if (g.destroy) g.destroy(); });
     GAMES.forEach(g => g.reset());
 
     console.log('[Totem] Countdown iniciado!');
@@ -142,6 +143,7 @@ function updatePlaying(input, now) {
 
   // Verificar se completou
   if (activeGame.getState() === 'won') {
+    if (activeGame.destroy) activeGame.destroy();
     if (currentLevel < GAMES.length - 1) {
       // Próximo nível
       gameState = 'transition';

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAVE — Teste isolado (Totem CRT)</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: "Press Start 2P", monospace, monospace;
+}
+canvas {
+  border: 2px solid #0ff;
+  display: block;
+  image-rendering: pixelated;
+  background: #050510;
+}
+#info {
+  color: #8af;
+  font-size: 9px;
+  margin-top: 12px;
+  text-align: center;
+  line-height: 1.8;
+  max-width: 640px;
+}
+#info strong { color: #0ff; }
+#state { color: #ff0; font-size: 10px; margin-top: 8px; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+<canvas id="c" width="640" height="480"></canvas>
+<div id="info">
+  <strong>Teste só NAVE</strong> — não carrega orquestrador nem as outras 3 TVs.<br>
+  Mesmo input do Totem: ← → ↑ ↓ · <strong>Z</strong> / <strong>Espaço</strong> atirar · <strong>Enter</strong> reiniciar partida
+</div>
+<div id="state"></div>
+
+<script type="module">
+import nave from './src/games/nave.js';
+import { poll, getState } from './src/input.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const stateEl = document.getElementById('state');
+
+nave.init(canvas, getState());
+nave.reset();
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Enter') {
+    e.preventDefault();
+    nave.reset();
+    last = performance.now();
+  }
+});
+
+let last = performance.now();
+
+function loop(now) {
+  poll();
+  const dt = Math.min(now - last, 50);
+  last = now;
+
+  nave.update(dt);
+
+  const st = nave.getState();
+  if (st === 'idle') nave.renderIdle(ctx);
+  else nave.render(ctx);
+
+  stateEl.textContent = 'state: ' + st + '  |  Enter = reiniciar';
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
