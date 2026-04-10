@@ -11,4 +11,7 @@ app/src/games/cyberrun_extracted_raw.js
 scripts/build_cyberrun.py
 test_cyberrun.html
 servir.bat
-app/games/
+# Só o Race é versionado em app/games; outras pastas ficam de fora
+app/games/*
+!app/games/race/
+!app/games/race/**
