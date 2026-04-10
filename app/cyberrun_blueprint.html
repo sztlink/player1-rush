@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cyber Run — Blueprint do nível</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #0a0612;
+      color: #e2e8f0;
+      font-family: system-ui, Segoe UI, sans-serif;
+      line-height: 1.45;
+    }
+    h1 { font-size: 1.15rem; margin: 0 0 8px; }
+    p { margin: 0 0 12px; font-size: 0.9rem; color: #94a3b8; max-width: 52rem; }
+    .bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    button {
+      background: linear-gradient(180deg, #22d3ee, #0891b2);
+      border: none;
+      color: #042f2e;
+      font-weight: 700;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover { filter: brightness(1.08); }
+    .hint { font-size: 0.8rem; color: #64748b; }
+    #wrap {
+      overflow-x: auto;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #020617;
+      padding: 8px;
+    }
+    canvas { display: block; max-width: 100%; height: auto; vertical-align: top; }
+    .leg { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 14px; font-size: 0.78rem; color: #94a3b8; }
+    .leg span { display: inline-flex; align-items: center; gap: 6px; }
+    .sw { width: 14px; height: 10px; border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <h1>Cyber Run — blueprint do nível (4250 × 480 px)</h1>
+  <p>
+    Mesmas coordenadas que <code>makeLevelData()</code> em <code>app/src/games/cyberrun.js</code>.
+    Usa isto para pintar <code>app/assets/cyberrun/level_mask.png</code> alinhado ao mapa.
+  </p>
+  <div class="bar">
+    <button type="button" id="btnDl">Descarregar PNG</button>
+    <span class="hint">Abre com <code>npm run dev</code> → <code>http://localhost:3000/cyberrun_blueprint.html</code></span>
+  </div>
+  <div id="wrap">
+    <canvas id="c" width="4250" height="480"></canvas>
+  </div>
+  <div class="leg">
+    <span><i class="sw" style="background:#3d4a6b;border:1px solid #7dd3fc"></i> Blocos</span>
+    <span><i class="sw" style="background:#22d3ee"></i> Plataformas</span>
+    <span><i class="sw" style="background:rgba(248,113,113,0.6)"></i> Buracos (gaps)</span>
+    <span><i class="sw" style="background:#fbbf24"></i> Moedas</span>
+    <span><i class="sw" style="background:#f97316"></i> Speed</span>
+    <span><i class="sw" style="background:#38bdf8"></i> Shield</span>
+    <span><i class="sw" style="background:#c084fc"></i> Star</span>
+    <span><i class="sw" style="background:#94a3b8"></i> Inimigo</span>
+    <span><i class="sw" style="background:transparent;border:2px solid #4ade80"></i> Bandeira</span>
+  </div>
+
+  <script>
+(function () {
+  const GROUND = 338;
+  const H = 480;
+  const W = 4250;
+  const FLAG_X = 4031;
+
+  const blocks = [
+    { x: 230, h: 27 }, { x: 425, h: 43 },
+    { x: 673, h: 23 }, { x: 903, h: 40 },
+    { x: 1080, h: 30 }, { x: 1311, h: 50 },
+    { x: 1505, h: 23 }, { x: 1700, h: 37 },
+    { x: 1877, h: 47 }, { x: 2108, h: 27 },
+    { x: 2320, h: 40 }, { x: 2586, h: 30 },
+    { x: 2745, h: 43 }, { x: 2939, h: 23 },
+    { x: 3117, h: 37 }, { x: 3311, h: 50 },
+    { x: 3506, h: 27 }, { x: 3701, h: 40 },
+    { x: 3878, h: 30 },
+  ];
+  const platforms = [
+    { x: 726, y: GROUND - 66, w: 49 },
+    { x: 1062, y: GROUND - 97, w: 53 },
+    { x: 1275, y: GROUND - 103, w: 44 },
+    { x: 1771, y: GROUND - 127, w: 49 },
+    { x: 2001, y: GROUND - 136, w: 49 },
+    { x: 2497, y: GROUND - 165, w: 44 },
+    { x: 2833, y: GROUND - 110, w: 53 },
+    { x: 3170, y: GROUND - 144, w: 49 },
+    { x: 3630, y: GROUND - 169, w: 44 },
+    { x: 3861, y: GROUND - 123, w: 49 },
+  ];
+  const gaps = [
+    { x: 514, w: 60 }, { x: 939, w: 64 },
+    { x: 1364, w: 62 }, { x: 1753, w: 66 },
+    { x: 2161, w: 64 }, { x: 2497, w: 60 },
+    { x: 2833, w: 66 }, { x: 3205, w: 62 },
+    { x: 3559, w: 68 }, { x: 3931, w: 64 },
+  ];
+  const coins = [
+    { x: 292, y: GROUND - 52 }, { x: 558, y: GROUND - 52 },
+    { x: 824, y: GROUND - 51 }, { x: 1062, y: GROUND - 73 },
+    { x: 1311, y: GROUND - 62 }, { x: 1532, y: GROUND - 69 },
+    { x: 1815, y: GROUND - 76 }, { x: 2089, y: GROUND - 52 },
+    { x: 2346, y: GROUND - 51 }, { x: 2612, y: GROUND - 56 },
+    { x: 2816, y: GROUND - 68 }, { x: 3046, y: GROUND - 52 },
+    { x: 3276, y: GROUND - 76 }, { x: 3498, y: GROUND - 59 },
+    { x: 3719, y: GROUND - 71 }, { x: 3984, y: GROUND - 52 },
+  ];
+  const powerups = [
+    { x: 708, y: GROUND - 103, type: 'speed' },
+    { x: 1290, y: GROUND - 138, type: 'shield' },
+    { x: 1656, y: GROUND - 88, type: 'star' },
+    { x: 2568, y: GROUND - 76, type: 'shield' },
+    { x: 3188, y: GROUND - 76, type: 'speed' },
+    { x: 3645, y: GROUND - 138, type: 'star' },
+  ];
+  const enemies = [
+    { x: 442, y: GROUND - 23, w: 22, h: 22 },
+    { x: 664, y: GROUND - 23, w: 22, h: 22 },
+    { x: 886, y: GROUND - 23, w: 22, h: 22 },
+    { x: 1133, y: GROUND - 23, w: 22, h: 22 },
+    { x: 1328, y: GROUND - 23, w: 22, h: 22 },
+    { x: 1549, y: GROUND - 23, w: 22, h: 22 },
+    { x: 1771, y: GROUND - 23, w: 22, h: 22 },
+    { x: 1992, y: GROUND - 23, w: 22, h: 22 },
+    { x: 2258, y: GROUND - 23, w: 22, h: 22 },
+    { x: 2479, y: GROUND - 23, w: 22, h: 22 },
+    { x: 2745, y: GROUND - 23, w: 22, h: 22 },
+    { x: 2992, y: GROUND - 23, w: 22, h: 22 },
+    { x: 3232, y: GROUND - 23, w: 22, h: 22 },
+    { x: 3453, y: GROUND - 23, w: 22, h: 22 },
+    { x: 3674, y: GROUND - 23, w: 22, h: 22 },
+    { x: 4006, y: GROUND - 23, w: 22, h: 22 },
+    { x: 797, y: GROUND - 51, w: 24, h: 19 },
+    { x: 1328, y: GROUND - 131, w: 24, h: 19 },
+    { x: 1948, y: GROUND - 76, w: 24, h: 19 },
+    { x: 2568, y: GROUND - 42, w: 24, h: 19 },
+    { x: 3099, y: GROUND - 148, w: 24, h: 19 },
+    { x: 3630, y: GROUND - 68, w: 24, h: 19 },
+    { x: 3984, y: GROUND - 110, w: 24, h: 19 },
+  ];
+
+  function getBlockRect(b) {
+    return { x: b.x, y: GROUND - b.h, w: 20, h: b.h };
+  }
+
+  function draw() {
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const sky = ctx.createLinearGradient(0, 0, 0, GROUND);
+    sky.addColorStop(0, '#0a0418');
+    sky.addColorStop(1, '#180828');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, GROUND);
+
+    ctx.fillStyle = '#0d0614';
+    ctx.fillRect(0, GROUND, W, H - GROUND);
+
+    ctx.strokeStyle = 'rgba(148,163,184,0.25)';
+    ctx.lineWidth = 1;
+    for (let gx = 0; gx <= W; gx += 100) {
+      ctx.beginPath();
+      ctx.moveTo(gx + 0.5, 0);
+      ctx.lineTo(gx + 0.5, H);
+      ctx.stroke();
+    }
+
+    for (const g of gaps) {
+      ctx.fillStyle = 'rgba(248, 113, 113, 0.5)';
+      ctx.fillRect(g.x, GROUND - 10, g.w, 14);
+    }
+
+    for (const b of blocks) {
+      const br = getBlockRect(b);
+      ctx.fillStyle = '#3d4a6b';
+      ctx.fillRect(br.x, br.y, br.w, br.h);
+      ctx.strokeStyle = '#7dd3fc';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1);
+    }
+
+    for (const pl of platforms) {
+      ctx.fillStyle = '#22d3ee';
+      ctx.fillRect(pl.x, pl.y, pl.w, 10);
+      ctx.strokeStyle = '#cffafe';
+      ctx.strokeRect(pl.x + 0.5, pl.y + 0.5, pl.w - 1, 9);
+    }
+
+    for (const c of coins) {
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const pwCol = { speed: '#f97316', shield: '#38bdf8', star: '#c084fc' };
+    for (const p of powerups) {
+      ctx.fillStyle = pwCol[p.type] || '#fff';
+      ctx.fillRect(p.x - 7, p.y - 7, 14, 14);
+    }
+
+    for (const e of enemies) {
+      ctx.fillStyle = 'rgba(148,163,184,0.85)';
+      ctx.fillRect(e.x, e.y, e.w, e.h);
+      ctx.strokeStyle = '#475569';
+      ctx.strokeRect(e.x + 0.5, e.y + 0.5, e.w - 1, e.h - 1);
+    }
+
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(FLAG_X, GROUND - 140, 48, 140);
+    ctx.fillStyle = '#4ade80';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('FLAG', FLAG_X + 6, GROUND - 148);
+
+    ctx.fillStyle = 'rgba(226,232,240,0.9)';
+    ctx.font = '12px monospace';
+    ctx.fillText('0', 4, 14);
+    ctx.fillText(String(W), W - 42, 14);
+    ctx.fillText('x=' + W + '  y=' + H, W - 120, H - 8);
+  }
+
+  draw();
+
+  document.getElementById('btnDl').addEventListener('click', function () {
+    const canvas = document.getElementById('c');
+    canvas.toBlob(function (blob) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'cyberrun_level_blueprint.png';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, 'image/png');
+  });
+})();
+  </script>
+</body>
+</html>

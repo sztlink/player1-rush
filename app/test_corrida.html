@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DRIVE / CORRIDA — Teste isolado (Totem CRT)</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: "Press Start 2P", monospace, monospace;
+}
+canvas {
+  border: 2px solid #0ff;
+  display: block;
+  image-rendering: pixelated;
+  background: #050510;
+}
+#info {
+  color: #8af;
+  font-size: 9px;
+  margin-top: 12px;
+  text-align: center;
+  line-height: 1.8;
+  max-width: 640px;
+}
+#info strong { color: #0ff; }
+#state { color: #ff0; font-size: 10px; margin-top: 8px; }
+#file-proto-warn {
+  background: #300;
+  color: #faa;
+  border: 2px solid #f44;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  max-width: 640px;
+  font-size: 9px;
+  line-height: 1.7;
+  text-align: left;
+}
+#file-proto-warn code { color: #fff; }
+</style>
+<script>
+if (location.protocol === 'file:') {
+  document.addEventListener('DOMContentLoaded', function () {
+    var w = document.createElement('div');
+    w.id = 'file-proto-warn';
+    w.innerHTML = '<strong>Não funciona por file://</strong> — o browser bloqueia módulos ES (<code>import</code>) em ficheiros locais. ' +
+      'Na raiz do projeto corre <code>npm run dev</code> ou <code>npm run dev:py</code> e abre <code>http://localhost:3000/test_corrida.html</code>.';
+    document.body.insertBefore(w, document.body.firstChild);
+  });
+}
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+<canvas id="c" width="640" height="480"></canvas>
+<div id="info">
+  <strong>Teste só DRIVE (CORRIDA)</strong> — não carrega orquestrador nem as outras TVs.<br>
+  Edita <code>src/games/corrida.js</code> e recarrega. Integração final continua em <code>app/index.html</code>.<br>
+  <strong>Espaço</strong> ou ↑ para <strong>começar</strong> (música/motor só após o start) · ← → guiar · ↓ travar · <strong>Enter</strong> reiniciar ao idle
+</div>
+<div id="state"></div>
+
+<script type="module">
+import corrida from './src/games/corrida.js';
+import { poll, getState } from './src/input.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const stateEl = document.getElementById('state');
+
+corrida.init(canvas, getState());
+corrida.reset();
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Enter') {
+    e.preventDefault();
+    corrida.reset();
+    last = performance.now();
+  }
+});
+
+let last = performance.now();
+
+function loop(now) {
+  poll();
+  const dt = Math.min(now - last, 50);
+  last = now;
+
+  corrida.update(dt);
+  corrida.render(ctx);
+
+  stateEl.textContent = 'getState(): ' + corrida.getState() + '  |  Enter = reiniciar volta';
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -17,7 +17,8 @@ const state = {
 const keysDown = {};
 document.addEventListener('keydown', e => {
   keysDown[e.code] = true;
-  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  // Só ↑↓ e espaço: evitar scroll. Setas ←→ sem preventDefault (alguns browsers/teclados falham com boost+X).
+  if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', e => { keysDown[e.code] = false; });
 
@@ -28,27 +29,53 @@ function readGamepad() {
   const gp = gamepads[0];
   if (!gp) return;
 
-  // Eixos (joystick)
-  state.left  = gp.axes[0] < -0.5;
-  state.right = gp.axes[0] > 0.5;
-  state.up    = gp.axes[1] < -0.5;
-  state.down  = gp.axes[1] > 0.5;
+  const ax0 = gp.axes[0] ?? 0;
+  state.left = ax0 < -0.5;
+  state.right = ax0 > 0.5;
+  state.up = gp.axes[1] < -0.5;
+  state.down = gp.axes[1] > 0.5;
+
+  // D-pad (muitos browsers: 14 = esquerda, 15 = direita) — boost no B + analógico instável
+  const b = gp.buttons;
+  const dL = b[14]?.pressed;
+  const dR = b[15]?.pressed;
+  if (dL || dR) {
+    state.left = !!dL;
+    state.right = !!dR;
+  }
 
   // Botões (layout padrão: A=0, B=1, Start=9)
   state.buttonA = gp.buttons[0]?.pressed || false;
   state.buttonB = gp.buttons[1]?.pressed || false;
-  state.start   = gp.buttons[9]?.pressed || false;
+  state.start = gp.buttons[9]?.pressed || false;
 }
 
-// Teclado override (sempre funciona, pra dev)
+// Teclado override + fusão com gamepad (boost no B + drift do analógico não bloqueia seta direita)
 function readKeyboard() {
-  if (keysDown['ArrowLeft'])  state.left = true;
-  if (keysDown['ArrowRight']) state.right = true;
+  const gpL = state.left;
+  const gpR = state.right;
+  const kL =
+    !!keysDown['ArrowLeft'] ||
+    !!keysDown['KeyA'] ||
+    !!keysDown['Numpad4'] ||
+    !!keysDown['KeyJ'];
+  const kR =
+    !!keysDown['ArrowRight'] ||
+    !!keysDown['KeyD'] ||
+    !!keysDown['Numpad6'] ||
+    !!keysDown['KeyL'];
+  state.left = kL || (gpL && !kR);
+  state.right = kR || (gpR && !kL);
+  if (state.left && state.right) {
+    state.left = false;
+    state.right = true;
+  }
   // Seta ↑ = "up". buttonA no teclado = só Espaço (atirar na NAVE, pulo no CyberRun, etc.)
   if (keysDown['ArrowUp']) state.up = true;
-  if (keysDown['ArrowDown'])  state.down = true;
+  if (keysDown['ArrowDown']) state.down = true;
   if (keysDown['Space']) state.buttonA = true;
-  if (keysDown['KeyX']) state.buttonB = true;
+  // Boost: X + C + Shift esquerdo (menos conflito com setas no mesmo matriz do teclado)
+  if (keysDown['KeyX'] || keysDown['KeyC'] || keysDown['ShiftLeft']) state.buttonB = true;
   if (keysDown['Enter']) state.start = true;
 }
 

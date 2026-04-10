@@ -395,6 +395,8 @@ function renderBackground(ctx) {
   // Stars
   ctx.fillStyle = '#fff';
   bgStars.forEach(star => {
+    star.x -= 0.4 + star.speed * 1.4;
+    if (star.x < -6) star.x = W + 6;
     ctx.globalAlpha = 0.3 + Math.sin(bgOffset * star.speed) * 0.2;
     ctx.fillRect(star.x, star.y, star.size, star.size);
   });

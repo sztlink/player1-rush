@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIGHT / LUTA — Teste isolado (Totem CRT)</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: "Press Start 2P", monospace, monospace;
+}
+canvas {
+  border: 2px solid #f0f;
+  display: block;
+  image-rendering: pixelated;
+  background: #050510;
+}
+#info {
+  color: #8af;
+  font-size: 9px;
+  margin-top: 12px;
+  text-align: center;
+  line-height: 1.8;
+  max-width: 640px;
+}
+#info strong { color: #f0f; }
+#state { color: #ff0; font-size: 10px; margin-top: 8px; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+<canvas id="c" width="640" height="480"></canvas>
+<div id="info">
+  <strong>Teste só FIGHT (LUTA)</strong> — não carrega orquestrador nem as outras TVs.<br>
+  Edita <code>src/games/luta.js</code> e recarrega. Integração final continua em <code>app/index.html</code>.<br>
+  ← → mover · ↑ ou <strong>Espaço</strong> saltar · ↓ ou <strong>X</strong> atacar · <strong>Enter</strong> reiniciar ronda
+</div>
+<div id="state"></div>
+
+<script type="module">
+import luta from './src/games/luta.js';
+import { poll, getState } from './src/input.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const stateEl = document.getElementById('state');
+
+luta.init(canvas, getState());
+luta.reset();
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Enter') {
+    e.preventDefault();
+    luta.reset();
+    last = performance.now();
+  }
+});
+
+let last = performance.now();
+
+function loop(now) {
+  poll();
+  const dt = Math.min(now - last, 50);
+  last = now;
+
+  luta.update(dt);
+  luta.render(ctx);
+
+  stateEl.textContent = 'getState(): ' + luta.getState() + '  |  Enter = reiniciar ronda';
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
