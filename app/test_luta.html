@@ -20,7 +20,7 @@ canvas { border: 2px solid #f0f; display: block; image-rendering: pixelated; }
 </div>
 <canvas id="c" width="640" height="480"></canvas>
 <div id="info">
-  ← → mover &nbsp;|&nbsp; ↑ / Space pular &nbsp;|&nbsp; ↓ / Z atacar &nbsp;|&nbsp; X SUPER (barra cheia) &nbsp;|&nbsp; → → DASH &nbsp;|&nbsp; ← ← + Z PODER &nbsp;|&nbsp; ← → + Z BURST &nbsp;|&nbsp; Enter reiniciar
+  ← → mover &nbsp;|&nbsp; ↑ / Space pular &nbsp;|&nbsp; Z atacar &nbsp;|&nbsp; ↓ + Z ONDA GLITCH &nbsp;|&nbsp; X SUPER (barra cheia) &nbsp;|&nbsp; → → DASH &nbsp;|&nbsp; ← ← + Z PODER &nbsp;|&nbsp; ← → + Z BURST &nbsp;|&nbsp; Enter reiniciar
 </div>
 <div id="state">state: idle</div>
 
@@ -46,8 +46,8 @@ document.addEventListener('keydown', e => {
   if (e.code === 'ArrowRight') inp.right = true;
   if (e.code === 'ArrowUp')    { inp.up = true; inp.buttonA = true; }
   if (e.code === 'Space')      { inp.up = true; inp.buttonA = true; e.preventDefault(); }
-  if (e.code === 'ArrowDown')  { inp.down = true; inp.buttonB = true; }
-  if (e.code === 'KeyZ')       { inp.down = true; inp.buttonB = true; }
+  if (e.code === 'ArrowDown')  { inp.down = true; }
+  if (e.code === 'KeyZ')       { inp.buttonB = true; }
   if (e.code === 'KeyX')      { inp.buttonX = true; }
   if (e.code === 'Enter')      { luta.reset(); }
   if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
@@ -58,8 +58,8 @@ document.addEventListener('keyup', e => {
   if (e.code === 'ArrowRight') inp.right = false;
   if (e.code === 'ArrowUp')    { inp.up = false; inp.buttonA = false; }
   if (e.code === 'Space')      { inp.up = false; inp.buttonA = false; }
-  if (e.code === 'ArrowDown')  { inp.down = false; inp.buttonB = false; }
-  if (e.code === 'KeyZ')       { inp.down = false; inp.buttonB = false; }
+  if (e.code === 'ArrowDown')  { inp.down = false; }
+  if (e.code === 'KeyZ')       { inp.buttonB = false; }
   if (e.code === 'KeyX')      { inp.buttonX = false; }
 });
 

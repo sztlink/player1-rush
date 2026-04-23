@@ -11,6 +11,9 @@ const JUMP_VEL = -13;
 const ATTACK_COOLDOWN = 30;
 const SPECIAL_COOLDOWN = 90;
 const SPECIAL_SPEED = 5;
+const GROUND_WAVE_COOLDOWN = 95;
+const GROUND_WAVE_SPEED = 7.2;
+const GROUND_WAVE_DAMAGE = 16;
 const COMBO_WINDOW = 20;
 const DASH_SPEED = 14;
 const DASH_DURATION = 12;
@@ -26,6 +29,7 @@ const P1_HP = 100;
 
 const P2_ATTACK_DAMAGE = 10;
 const P2_HP = 180;
+const P2_RANGED_DAMAGE = 8;
 
 // Estado global do jogo
 let state = 'idle'; // 'idle' | 'playing' | 'pre_phase2' | 'phase_transition' | 'dying' | 'won' | 'lost'
@@ -39,6 +43,11 @@ let enemy = null;
 // IA
 let aiAttackTimer = 0;
 let aiJumpTimer = 0;
+let aiStrafeDir = 1;
+let aiStrafeTimer = 0;
+let aiRangedTimer = 0;
+let aiMeleeCommitTimer = 0;
+let prevButtonB = false;
 
 // Audio context
 let audioCtx = null;
@@ -50,14 +59,17 @@ let timerFrame = 0;
 // Projéteis ativos
 let projectiles = [];
 let energyFields = [];
+let groundWaves = [];
 let bossTraps = [];
 let bossTrapTimer = 0;
 let bossPowers = [];
 let bossPowerTimer = 0;
 
 // Vidas do P1
-const P1_MAX_LIVES = 3;
+const P1_MAX_LIVES = 5;
 let p1Lives = P1_MAX_LIVES;
+const BERSERKER_LIVES_THRESHOLD = 2;
+const BERSERKER_DAMAGE_MULT = 1.35;
 
 // Super meter
 const SUPER_MAX = 100;
@@ -68,6 +80,12 @@ const P1_SUPER_FLAT = 20;
 const P1_SUPER_MAX_DURATION = 118;
 let p1SuperFx = null;
 let prevButtonX = false;
+let bossCineFx = {
+  flash: 0,
+  shake: 0,
+  glitch: 0,
+  bars: 0
+};
 
 // Boss phase
 let bossPhase = 1;
@@ -95,6 +113,92 @@ let deathExplosion = null;
 // Victory FX
 let victoryTimer = 0;
 let victoryParticles = [];
+
+function isP1Berserker() {
+  return p1Lives <= BERSERKER_LIVES_THRESHOLD;
+}
+
+function scaleP1Damage(baseDamage) {
+  if (!isP1Berserker()) return baseDamage;
+  return Math.round(baseDamage * BERSERKER_DAMAGE_MULT);
+}
+
+function triggerBossCinematic(kind, intensity = 1) {
+  if (bossPhase < 2) return;
+  const i = Math.max(0.2, intensity);
+  if (kind === 'spawn') {
+    bossCineFx.flash = Math.max(bossCineFx.flash, 0.08 * i);
+    bossCineFx.shake = Math.max(bossCineFx.shake, 0.9 * i);
+    bossCineFx.glitch = Math.max(bossCineFx.glitch, 0.35 * i);
+    bossCineFx.bars = Math.max(bossCineFx.bars, 0.4 * i);
+  } else if (kind === 'impact') {
+    bossCineFx.flash = Math.max(bossCineFx.flash, 0.2 * i);
+    bossCineFx.shake = Math.max(bossCineFx.shake, 1.7 * i);
+    bossCineFx.glitch = Math.max(bossCineFx.glitch, 0.65 * i);
+    bossCineFx.bars = Math.max(bossCineFx.bars, 0.8 * i);
+  } else {
+    bossCineFx.flash = Math.max(bossCineFx.flash, 0.12 * i);
+    bossCineFx.shake = Math.max(bossCineFx.shake, 1.1 * i);
+    bossCineFx.glitch = Math.max(bossCineFx.glitch, 0.45 * i);
+    bossCineFx.bars = Math.max(bossCineFx.bars, 0.55 * i);
+  }
+}
+
+function updateBossCinematic() {
+  bossCineFx.flash *= 0.9;
+  bossCineFx.shake *= 0.86;
+  bossCineFx.glitch *= 0.88;
+  bossCineFx.bars *= 0.84;
+  if (bossCineFx.flash < 0.002) bossCineFx.flash = 0;
+  if (bossCineFx.shake < 0.02) bossCineFx.shake = 0;
+  if (bossCineFx.glitch < 0.01) bossCineFx.glitch = 0;
+  if (bossCineFx.bars < 0.01) bossCineFx.bars = 0;
+}
+
+function renderBossCinematic(ctx) {
+  if (bossPhase < 2) return;
+  if (bossCineFx.flash <= 0 && bossCineFx.glitch <= 0 && bossCineFx.bars <= 0) return;
+
+  const pulse = 0.5 + 0.5 * Math.sin(bgOffset * 0.2);
+  const flashA = Math.min(0.35, bossCineFx.flash);
+  const glitchA = Math.min(0.3, bossCineFx.glitch);
+  const barsA = Math.min(0.22, bossCineFx.bars);
+  const shakePx = Math.min(6, bossCineFx.shake * 2.4);
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  const overlay = ctx.createLinearGradient(0, 0, 0, H);
+  overlay.addColorStop(0, `rgba(255,70,220,${flashA * (0.6 + pulse * 0.4)})`);
+  overlay.addColorStop(0.55, `rgba(120,0,200,${flashA * 0.45})`);
+  overlay.addColorStop(1, `rgba(0,0,0,0)`);
+  ctx.fillStyle = overlay;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  if (glitchA > 0.01) {
+    ctx.save();
+    const shift = (Math.sin(bgOffset * 0.55) * 1.8) * (0.6 + glitchA) + Math.sin(bgOffset * 1.1) * shakePx;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = glitchA * 0.25;
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillRect(Math.max(0, shift), 0, W - Math.abs(shift), H);
+    ctx.fillStyle = '#00ffff';
+    ctx.fillRect(0, 0, W - Math.max(0, shift), H);
+    ctx.restore();
+  }
+
+  if (barsA > 0.01) {
+    ctx.save();
+    ctx.globalAlpha = barsA;
+    for (let i = 0; i < 5; i++) {
+      const y = (bgOffset * 13 + i * 79 + Math.sin(bgOffset * 0.3 + i) * shakePx * 3) % H;
+      const h = 1 + (i % 3);
+      ctx.fillStyle = i % 2 ? 'rgba(255,0,255,0.6)' : 'rgba(0,255,255,0.45)';
+      ctx.fillRect(0, y, W, h);
+    }
+    ctx.restore();
+  }
+}
 
 function spawnVictoryFX() {
   victoryTimer = 0;
@@ -266,10 +370,11 @@ function renderDeathExplosion(ctx) {
 let bgOffset = 0;
 let bgRaindrops = [];
 let bgSmoke = [];
+let bgEmbers = [];
 let bgImage = null;
 let bgImageLoaded = false;
 const BG_PHASE2_SRC =
-  'assets/fight/ChatGPT Image 20 de abr. de 2026, 15_59_06.png';
+  'assets/fight/Cenario_002.png';
 let bgImageP2 = null;
 let bgImageP2Loaded = false;
 let bgImageP2InitDone = false;
@@ -287,16 +392,20 @@ let bossImploding = false;
 // =============================================================================
 
 const SPRITE_SCALE = 3;
+const DESTROYER_SCALE_FIX = 0.72;
 
 const SPRITE_DEFS = {
   'Enemy-Punk': {
-    basePath: 'assets/fight/Enemy-Punk',
+    basePath: 'assets/fight',
     defaultFacingRight: false,
     animations: {
-      idle:  { folder: 'Idle',  prefix: 'idle',  count: 4, speed: 8, loop: true },
-      walk:  { folder: 'Walk',  prefix: 'walk',  count: 4, speed: 6, loop: true },
-      punch: { folder: 'Punch', prefix: 'punch', count: 3, speed: 5, loop: false },
-      hurt:  { folder: 'Hurt',  prefix: 'hurt',  count: 4, speed: 6, loop: false },
+      idle:  { folder: 'Destroyer/Idle',  prefix: 'idle',  count: 5, speed: 8, loop: true },
+      walk:  { folder: 'Destroyer/Walk',  prefix: 'walk',  count: 8, speed: 6, loop: true },
+      punch: { folder: 'Destroyer/Punch', prefix: 'punch', count: 3, speed: 5, loop: false },
+      hurt:  { folder: 'Destroyer/Hurt',  prefix: 'hurt',  count: 3, speed: 6, loop: false },
+      shot:  { folder: 'Destroyer/Shot',  prefix: 'shot',  count: 8, speed: 5, loop: true },
+      chargeHit: { folder: 'Destroyer/ChargeImpact', prefix: 'charge', count: 5, speed: 4, loop: false },
+      dead:  { folder: 'Destroyer/Dead',  prefix: 'dead',  count: 7, speed: 7, loop: false },
     }
   },
   'Brawler-Girl': {
@@ -381,6 +490,10 @@ class Fighter {
     this.prevAnim = 'idle';
     this.spriteFrame = 0;
     this.spriteTimer = 0;
+    this.forcedAnim = null;
+    this.forcedAnimTimer = 0;
+    this.queuedProjectileTimer = 0;
+    this.queuedProjectileDirRight = true;
 
     this.attackBox = { x: 0, y: 0, w: 60, h: 40 };
 
@@ -401,12 +514,15 @@ class Fighter {
     // Burst (energy field)
     this.bfBuffer = [];
     this.burstCooldown = 0;
+    this.groundWaveCooldown = 0;
   }
 
   getAnimState() {
-    if (this.hitFlicker > 6) return 'hurt';
+    const def = SPRITE_DEFS[this.charName];
+    if (this.health <= 0 && def.animations.dead) return 'dead';
+    if (this.hitFlicker > 0) return 'hurt';
+    if (this.forcedAnimTimer > 0 && this.forcedAnim && def.animations[this.forcedAnim]) return this.forcedAnim;
     if (!this.onGround) {
-      const def = SPRITE_DEFS[this.charName];
       if (this.attacking && def.animations.jump_kick) {
         // Falling + attack = dive_kick, rising + attack = jump_kick
         if (this.vy > 0 && def.animations.dive_kick) return 'dive_kick';
@@ -459,6 +575,18 @@ class Fighter {
     if (this.specialCooldown > 0) this.specialCooldown--;
     if (this.dashCooldown > 0) this.dashCooldown--;
     if (this.burstCooldown > 0) this.burstCooldown--;
+    if (this.groundWaveCooldown > 0) this.groundWaveCooldown--;
+    if (this.forcedAnimTimer > 0) this.forcedAnimTimer--;
+
+    if (!this.isPlayer && this.queuedProjectileTimer > 0) {
+      this.queuedProjectileTimer--;
+      if (this.queuedProjectileTimer <= 0 && state === 'playing' && this.health > 0) {
+        const px = this.queuedProjectileDirRight ? this.x + this.w + 8 : this.x - 8;
+        const py = this.y - 45;
+        projectiles.push(new Projectile(px, py, this.queuedProjectileDirRight, this));
+        sndShoot();
+      }
+    }
 
     // Dash movement
     if (this.dashing) {
@@ -610,11 +738,39 @@ class Fighter {
     sndBurst();
   }
 
+  fireGroundWave() {
+    if (this.groundWaveCooldown > 0) return false;
+    this.groundWaveCooldown = GROUND_WAVE_COOLDOWN;
+    const gx = this.facingRight ? this.x + this.w + 4 : this.x - 4;
+    groundWaves.push(new GroundWave(gx, this, this.facingRight));
+    sndSpecial();
+    return true;
+  }
+
   takeHit(damage) {
     this.health -= damage;
     if (this.health < 0) this.health = 0;
-    this.hitFlicker = 10;
+    const def = SPRITE_DEFS[this.charName];
+    const hurtAnim = def?.animations?.hurt;
+    // Keep hurt state long enough to display all hurt frames.
+    this.hitFlicker = hurtAnim ? Math.max(10, hurtAnim.count * hurtAnim.speed + 2) : 10;
     sndHit();
+  }
+
+  triggerAnim(animName) {
+    const def = SPRITE_DEFS[this.charName];
+    const anim = def?.animations?.[animName];
+    if (!anim) return;
+    this.forcedAnim = animName;
+    this.forcedAnimTimer = Math.max(4, anim.count * anim.speed);
+  }
+
+  queueRangedShot(dirRight) {
+    const def = SPRITE_DEFS[this.charName];
+    const shotAnim = def?.animations?.shot;
+    this.queuedProjectileDirRight = !!dirRight;
+    this.queuedProjectileTimer = shotAnim ? Math.max(4, Math.floor(shotAnim.count * shotAnim.speed * 0.62)) : 8;
+    this.triggerAnim('shot');
   }
 
   renderSprite(ctx, sprite, posX, posY, w, h, fRight, alpha) {
@@ -689,7 +845,10 @@ class Fighter {
 
     const sw = sprite.naturalWidth;
     const sh = sprite.naturalHeight;
-    const scale = (!this.isPlayer && bossPhase >= 2) ? SPRITE_SCALE * P2_PHASE2_SCALE : SPRITE_SCALE;
+    const enemyScaleFix = (!this.isPlayer && this.charName === 'Enemy-Punk') ? DESTROYER_SCALE_FIX : 1;
+    const scale = (!this.isPlayer && bossPhase >= 2)
+      ? SPRITE_SCALE * enemyScaleFix * P2_PHASE2_SCALE
+      : SPRITE_SCALE * enemyScaleFix;
     const dw = sw * scale;
     const dh = sh * scale;
 
@@ -703,8 +862,116 @@ class Fighter {
       ctx.translate(cx, drawY);
       ctx.scale(-1, 1);
       ctx.drawImage(sprite, -dw / 2, 0, dw, dh);
+      if (this.isPlayer && isP1Berserker()) {
+        const pulse = 0.55 + 0.45 * Math.sin(bgOffset * 0.18);
+        const pulse2 = 0.5 + 0.5 * Math.sin(bgOffset * 0.31 + 1.1);
+        // Chromatic edge aura without rectangular overlays.
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(255,70,170,${0.28 + 0.18 * pulse2})`;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#ff2bcf';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.ellipse(0, dh * 0.55, dw * 0.42, dh * 0.47, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(0,255,255,${0.22 + 0.16 * pulse2})`;
+        ctx.shadowColor = '#00ffff';
+        ctx.beginPath();
+        ctx.ellipse(0, dh * 0.55, dw * 0.38, dh * 0.43, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        const aura = ctx.createRadialGradient(0, dh * 0.55, 10, 0, dh * 0.55, dw * 0.78);
+        aura.addColorStop(0, `rgba(255,40,190,${0.3 * pulse})`);
+        aura.addColorStop(0.55, `rgba(130,0,235,${0.25 * pulse})`);
+        aura.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalCompositeOperation = 'screen';
+        ctx.fillStyle = aura;
+        ctx.fillRect(-dw * 0.9, -dh * 0.1, dw * 1.8, dh * 1.3);
+
+        // Scanline glitch on top of sprite (no rectangle frame).
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = `rgba(0,255,255,${0.15 + 0.12 * pulse})`;
+        for (let i = 0; i < 5; i++) {
+          const sy = 5 + ((bgOffset * 4 + i * 9) % Math.max(12, dh - 12));
+          ctx.fillRect(-dw / 2 + 4, sy, dw - 8, 1);
+        }
+
+        // Ground energy ring + sparks around feet.
+        const feetY = dh - 4;
+        ctx.strokeStyle = `rgba(255,80,220,${0.4 + 0.35 * pulse})`;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = '#ff2bcf';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.ellipse(0, feetY, dw * (0.23 + 0.02 * pulse2), 6 + 2 * pulse, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI * 2 / 6) * i + bgOffset * 0.06;
+          const sx = Math.cos(a) * (dw * 0.18);
+          const sy = feetY + Math.sin(a) * 4;
+          const ss = 1.5 + (i % 2);
+          ctx.fillStyle = i % 2 ? 'rgba(255,90,200,0.75)' : 'rgba(0,255,255,0.65)';
+          ctx.fillRect(sx, sy, ss, ss);
+        }
+      }
     } else {
       ctx.drawImage(sprite, cx - dw / 2, drawY, dw, dh);
+      if (this.isPlayer && isP1Berserker()) {
+        const pulse = 0.55 + 0.45 * Math.sin(bgOffset * 0.18);
+        const pulse2 = 0.5 + 0.5 * Math.sin(bgOffset * 0.31 + 1.1);
+        // Chromatic edge aura without rectangular overlays.
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(255,70,170,${0.28 + 0.18 * pulse2})`;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#ff2bcf';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.ellipse(cx, drawY + dh * 0.55, dw * 0.42, dh * 0.47, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(0,255,255,${0.22 + 0.16 * pulse2})`;
+        ctx.shadowColor = '#00ffff';
+        ctx.beginPath();
+        ctx.ellipse(cx, drawY + dh * 0.55, dw * 0.38, dh * 0.43, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        const aura = ctx.createRadialGradient(cx, drawY + dh * 0.55, 10, cx, drawY + dh * 0.55, dw * 0.78);
+        aura.addColorStop(0, `rgba(255,40,190,${0.3 * pulse})`);
+        aura.addColorStop(0.55, `rgba(130,0,235,${0.25 * pulse})`);
+        aura.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalCompositeOperation = 'screen';
+        ctx.fillStyle = aura;
+        ctx.fillRect(cx - dw * 0.9, drawY - dh * 0.1, dw * 1.8, dh * 1.3);
+
+        // Scanline glitch on top of sprite (no rectangle frame).
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = `rgba(0,255,255,${0.15 + 0.12 * pulse})`;
+        for (let i = 0; i < 5; i++) {
+          const sy = drawY + 5 + ((bgOffset * 4 + i * 9) % Math.max(12, dh - 12));
+          ctx.fillRect(cx - dw / 2 + 4, sy, dw - 8, 1);
+        }
+
+        // Ground energy ring + sparks around feet.
+        const feetY = drawY + dh - 4;
+        ctx.strokeStyle = `rgba(255,80,220,${0.4 + 0.35 * pulse})`;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = '#ff2bcf';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.ellipse(cx, feetY, dw * (0.23 + 0.02 * pulse2), 6 + 2 * pulse, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI * 2 / 6) * i + bgOffset * 0.06;
+          const sx = cx + Math.cos(a) * (dw * 0.18);
+          const sy = feetY + Math.sin(a) * 4;
+          const ss = 1.5 + (i % 2);
+          ctx.fillStyle = i % 2 ? 'rgba(255,90,200,0.75)' : 'rgba(0,255,255,0.65)';
+          ctx.fillRect(sx, sy, ss, ss);
+        }
+      }
     }
 
     ctx.restore();
@@ -726,6 +993,9 @@ class Projectile {
     this.alive = true;
     this.life = 0;
     this.trail = [];
+    this.exploding = false;
+    this.explodeFrame = 0;
+    this.explodeTick = 0;
     this.dataChars = [];
     for (let i = 0; i < 8; i++) {
       this.dataChars.push({
@@ -738,6 +1008,13 @@ class Projectile {
   }
 
   update() {
+    if (this.exploding) {
+      this.explodeTick++;
+      if (this.explodeTick % 3 === 0) this.explodeFrame++;
+      if (this.explodeFrame >= 5) this.alive = false;
+      return;
+    }
+
     this.x += this.dirRight ? SPECIAL_SPEED : -SPECIAL_SPEED;
     this.life++;
 
@@ -758,6 +1035,83 @@ class Projectile {
     const t = bgOffset;
     const pulse = 0.7 + 0.3 * Math.sin(t * 0.2 + this.life * 0.3);
     const isPlayer = this.owner === player;
+
+    if (!isPlayer) {
+      if (this.exploding) {
+        ctx.save();
+        const ip = Math.min(1, this.explodeFrame / 4);
+        const r = 14 + ip * 18;
+        const blast = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+        blast.addColorStop(0, `rgba(255,255,255,${0.9 - ip * 0.2})`);
+        blast.addColorStop(0.35, `rgba(255,90,230,${0.75 - ip * 0.25})`);
+        blast.addColorStop(1, 'rgba(120,0,255,0)');
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = blast;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = `rgba(255,140,245,${0.6 - ip * 0.35})`;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = '#ff40dd';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r * (0.7 + ip * 0.25), 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.restore();
+        return;
+      }
+
+      // Phase 1 boss custom shot (cyberpunk procedural).
+      const dir = this.dirRight ? 1 : -1;
+      const p = 0.65 + 0.35 * Math.sin(this.life * 0.45);
+      ctx.save();
+
+      // Tail ribbon
+      ctx.strokeStyle = `rgba(255,70,230,${0.45 + 0.2 * p})`;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#ff2be3';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(this.x - dir * 30, this.y + Math.sin(this.life * 0.2) * 1.6);
+      ctx.lineTo(this.x - dir * 12, this.y - Math.sin(this.life * 0.32) * 2.2);
+      ctx.lineTo(this.x + dir * 4, this.y);
+      ctx.stroke();
+
+      // Core orb
+      const coreR = 11 + 3 * p;
+      const core = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, coreR);
+      core.addColorStop(0, 'rgba(255,255,255,0.95)');
+      core.addColorStop(0.28, 'rgba(255,140,245,0.9)');
+      core.addColorStop(0.75, 'rgba(160,30,255,0.55)');
+      core.addColorStop(1, 'rgba(90,0,180,0)');
+      ctx.fillStyle = core;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, coreR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Digital shards around core
+      ctx.shadowBlur = 0;
+      for (let i = 0; i < 6; i++) {
+        const a = this.life * 0.18 + i * (Math.PI * 2 / 6);
+        const sx = this.x + Math.cos(a) * (9 + 2 * p);
+        const sy = this.y + Math.sin(a) * (6 + 1.5 * p);
+        const ss = 1.5 + (i % 2);
+        ctx.fillStyle = i % 2 ? 'rgba(255,90,220,0.8)' : 'rgba(120,255,255,0.65)';
+        ctx.fillRect(sx, sy, ss, ss);
+      }
+
+      // Front highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.beginPath();
+      ctx.ellipse(this.x + dir * 2, this.y - 1, 3.8, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      return;
+    }
+
     const coreColor = isPlayer ? '#00ffff' : '#ff00ff';
     const glowColor = isPlayer ? 'rgba(0,255,255,' : 'rgba(255,0,255,';
     const trailDir = this.dirRight ? -1 : 1;
@@ -873,6 +1227,129 @@ class Projectile {
 }
 
 // =============================================================================
+// P1 GROUND WAVE — Down + Punch power
+// =============================================================================
+
+class GroundWave {
+  constructor(x, owner, dirRight = true) {
+    this.x = x;
+    this.y = GROUND_Y;
+    this.owner = owner;
+    this.dirRight = dirRight;
+    this.alive = true;
+    this.life = 0;
+    this.maxLife = 140;
+    this.w = 62;
+    this.h = 0;
+    this.hitDone = false;
+    this.shards = Array.from({ length: 12 }, (_, i) => ({
+      phase: Math.random() * Math.PI * 2 + i * 0.55,
+      amp: 3 + Math.random() * 7,
+      dx: (Math.random() - 0.5) * 28
+    }));
+  }
+
+  update() {
+    this.life++;
+    this.x += this.dirRight ? GROUND_WAVE_SPEED : -GROUND_WAVE_SPEED;
+    // Column rises from the ground until near the top of screen.
+    const rise = Math.min(1, this.life / 32);
+    this.h = Math.max(26, (GROUND_Y - 24) * rise);
+
+    if (this.x < -90 || this.x > W + 90 || this.life > this.maxLife) this.alive = false;
+  }
+
+  getBox() {
+    return { x: this.x - this.w / 2, y: GROUND_Y - this.h, w: this.w, h: this.h };
+  }
+
+  render(ctx) {
+    const pulse = 0.66 + 0.34 * Math.sin(this.life * 0.32);
+    const alpha = Math.max(0, 1 - this.life / this.maxLife);
+    const headX = this.x;
+    const trailDir = this.dirRight ? -1 : 1;
+    const topY = GROUND_Y - this.h;
+
+    ctx.save();
+
+    // Ground glow trail
+    for (let i = 0; i < 8; i++) {
+      const tx = headX + trailDir * i * 14;
+      const ta = alpha * (1 - i / 8) * 0.3;
+      const g = ctx.createRadialGradient(tx, GROUND_Y - 2, 0, tx, GROUND_Y - 2, 18 + i * 2);
+      g.addColorStop(0, `rgba(190,70,255,${ta * 1.2})`);
+      g.addColorStop(0.5, `rgba(135,40,235,${ta})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(tx, GROUND_Y - 2, 20 + i * 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Main vertical wave column (similar to boss phase 2 wave)
+    const colGrad = ctx.createLinearGradient(headX, GROUND_Y, headX, topY);
+    colGrad.addColorStop(0, `rgba(170,50,255,${0.65 * alpha})`);
+    colGrad.addColorStop(0.45, `rgba(215,120,255,${0.38 * alpha})`);
+    colGrad.addColorStop(1, 'rgba(130,0,255,0)');
+    ctx.fillStyle = colGrad;
+    ctx.fillRect(headX - this.w / 2, topY, this.w, this.h);
+
+    ctx.shadowColor = '#a200ff';
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = `rgba(228,150,255,${0.55 * alpha})`;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(headX - this.w / 2, GROUND_Y);
+    ctx.lineTo(headX - this.w / 2, topY);
+    ctx.lineTo(headX + this.w / 2, topY);
+    ctx.lineTo(headX + this.w / 2, GROUND_Y);
+    ctx.stroke();
+
+    // Inner wave ribbons
+    ctx.strokeStyle = `rgba(255,180,255,${0.4 * alpha})`;
+    ctx.lineWidth = 1.2;
+    for (let r = 0; r < 3; r++) {
+      const ox = (r - 1) * 9;
+      ctx.beginPath();
+      for (let i = 0; i <= 11; i++) {
+        const tt = i / 11;
+        const ry = GROUND_Y - this.h * tt;
+        const rx = headX + ox + Math.sin(this.life * 0.25 + tt * 8 + r) * (4 + pulse * 2);
+        if (i === 0) ctx.moveTo(rx, ry);
+        else ctx.lineTo(rx, ry);
+      }
+      ctx.stroke();
+    }
+
+    // Glitch shards
+    ctx.shadowBlur = 0;
+    this.shards.forEach((s, i) => {
+      const t = (i % 8) / 8;
+      const sx = headX + s.dx * (0.55 + pulse * 0.4);
+      const sy = GROUND_Y - this.h * t - Math.sin(this.life * 0.22 + s.phase) * s.amp;
+      const sz = 2 + (i % 4);
+      ctx.fillStyle = i % 2 === 0
+        ? `rgba(242,160,255,${0.45 * alpha})`
+        : `rgba(180,255,255,${0.36 * alpha})`;
+      ctx.fillRect(sx - sz / 2, sy - sz / 2, sz, sz);
+    });
+
+    // Crest flash at top
+    const crestR = 10 + pulse * 4;
+    const crest = ctx.createRadialGradient(headX, topY, 0, headX, topY, crestR);
+    crest.addColorStop(0, `rgba(255,255,255,${0.85 * alpha})`);
+    crest.addColorStop(0.35, `rgba(240,130,255,${0.7 * alpha})`);
+    crest.addColorStop(1, 'rgba(150,0,255,0)');
+    ctx.fillStyle = crest;
+    ctx.beginPath();
+    ctx.arc(headX, topY, crestR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// =============================================================================
 // ENERGY FIELD — Burst Push
 // =============================================================================
 
@@ -929,7 +1406,8 @@ class EnergyField {
         const dy = (target.y + target.h / 2) - this.cy;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < this.radius + 30) {
-          target.takeHit(BURST_DAMAGE);
+          const burstDmg = this.owner === player ? scaleP1Damage(BURST_DAMAGE) : BURST_DAMAGE;
+          target.takeHit(burstDmg);
           if (this.owner === player) superMeter = Math.min(SUPER_MAX, superMeter + 10);
           const pushDir = dx > 0 ? 1 : -1;
           target.x += pushDir * BURST_KNOCKBACK * 6;
@@ -1199,6 +1677,21 @@ class BossTrap {
         ctx.textAlign = 'left';
       }
 
+      // Helper label for P1: subtle cyberpunk glitch text above trap
+      const labelY = cy - 28 - Math.sin(t * 0.1) * 1.5;
+      const jitterX = (Math.random() - 0.5) * 1.2;
+      const textAlpha = 0.58 * alpha;
+      ctx.textAlign = 'center';
+      ctx.font = `bold 9px ${HUD_FONT}`;
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = `rgba(0,255,255,${textAlpha * 0.5})`;
+      ctx.fillText('ARMADILHA', cx - 1 + jitterX, labelY + 0.4);
+      ctx.fillStyle = `rgba(255,0,170,${textAlpha * 0.45})`;
+      ctx.fillText('ARMADILHA', cx + 1 + jitterX, labelY - 0.4);
+      ctx.fillStyle = `rgba(255,90,170,${textAlpha})`;
+      ctx.fillText('ARMADILHA', cx + jitterX, labelY);
+      ctx.textAlign = 'left';
+
       // Corner marks
       const hw = this.w / 2;
       ctx.strokeStyle = `rgba(255,0,100,${0.4 * alpha})`;
@@ -1252,9 +1745,10 @@ class BossProjectile {
     this.alive = true;
     this.life = 0;
     this.trail = [];
-    this.w = 50;
-    this.h = 30;
+    this.w = 72;
+    this.h = 44;
     this.hitDone = false;
+    triggerBossCinematic('spawn', 0.9);
   }
 
   update() {
@@ -1267,10 +1761,11 @@ class BossProjectile {
     if (!this.hitDone && player) {
       const dx = Math.abs((player.x + player.w / 2) - this.x);
       const dy = Math.abs((player.y + player.h / 2) - this.y);
-      if (dx < 30 && dy < 25) {
+      if (dx < 40 && dy < 32) {
         player.takeHit(BOSS_PROJ_DAMAGE);
         this.hitDone = true;
         this.alive = false;
+        triggerBossCinematic('impact', 1.1);
       }
     }
     if (this.x < -60 || this.x > W + 60) this.alive = false;
@@ -1283,18 +1778,18 @@ class BossProjectile {
       if (tr.alpha <= 0) return;
       ctx.save();
       ctx.globalAlpha = tr.alpha * 0.3;
-      const g = ctx.createRadialGradient(tr.x, tr.y, 0, tr.x, tr.y, 16);
+      const g = ctx.createRadialGradient(tr.x, tr.y, 0, tr.x, tr.y, 24);
       g.addColorStop(0, 'rgba(255,0,255,0.5)');
       g.addColorStop(1, 'rgba(255,0,255,0)');
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(tr.x, tr.y, 16, 0, Math.PI * 2);
+      ctx.arc(tr.x, tr.y, 24, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     });
 
     ctx.save();
-    const outerR = 45 * pulse;
+    const outerR = 66 * pulse;
     const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, outerR);
     g.addColorStop(0, `rgba(255,0,255,${0.35 * pulse})`);
     g.addColorStop(0.5, 'rgba(255,0,200,0.1)');
@@ -1305,17 +1800,18 @@ class BossProjectile {
     ctx.fill();
 
     ctx.shadowColor = '#ff00ff';
-    ctx.shadowBlur = 25 * pulse;
+    ctx.shadowBlur = 32 * pulse;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y, 16 * pulse, 10 * pulse, 0, 0, Math.PI * 2);
+    ctx.ellipse(this.x, this.y, 24 * pulse, 15 * pulse, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.shadowBlur = 15;
+    ctx.shadowBlur = 20;
     ctx.fillStyle = '#ff00ff';
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y, 12, 7, 0, 0, Math.PI * 2);
+    ctx.ellipse(this.x, this.y, 18, 11, 0, 0, Math.PI * 2);
     ctx.fill();
+
     ctx.restore();
   }
 }
@@ -1326,11 +1822,12 @@ class BossGroundWave {
     this.dirRight = dirRight;
     this.alive = true;
     this.life = 0;
-    this.speed = 5;
-    this.w = 60;
-    this.h = 50;
+    this.speed = 5.4;
+    this.w = 84;
+    this.h = 86;
     this.hitPlayers = new Set();
     this.sparks = [];
+    triggerBossCinematic('spawn', 1.15);
   }
 
   update() {
@@ -1352,10 +1849,11 @@ class BossGroundWave {
     if (player && !this.hitPlayers.has('p1')) {
       const px = player.x + player.w / 2;
       const py = player.y + player.h;
-      if (Math.abs(px - this.x) < this.w / 2 && py >= GROUND_Y - 10) {
+      if (Math.abs(px - this.x) < this.w * 0.58 && py >= GROUND_Y - 14) {
         player.takeHit(BOSS_WAVE_DAMAGE);
         player.vy = -8;
         this.hitPlayers.add('p1');
+        triggerBossCinematic('impact', 1.3);
       }
     }
 
@@ -1370,17 +1868,17 @@ class BossGroundWave {
 
     // Ground energy column
     const grad = ctx.createLinearGradient(this.x, GROUND_Y, this.x, GROUND_Y - waveH);
-    grad.addColorStop(0, `rgba(255,0,180,0.6)`);
-    grad.addColorStop(0.5, `rgba(255,0,255,0.25)`);
+    grad.addColorStop(0, `rgba(255,0,180,0.72)`);
+    grad.addColorStop(0.5, `rgba(255,0,255,0.35)`);
     grad.addColorStop(1, 'rgba(255,0,255,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(this.x - this.w / 2, GROUND_Y - waveH, this.w, waveH);
 
     // Glow
     ctx.shadowColor = '#ff00ff';
-    ctx.shadowBlur = 15;
+    ctx.shadowBlur = 22;
     ctx.strokeStyle = `rgba(255,0,255,${0.6 * pulse})`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.8;
     ctx.beginPath();
     ctx.moveTo(this.x - this.w / 2, GROUND_Y);
     ctx.lineTo(this.x - this.w / 2, GROUND_Y - waveH);
@@ -1389,9 +1887,9 @@ class BossGroundWave {
     ctx.stroke();
 
     // Base flash
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = `rgba(255,100,255,${0.4 * pulse})`;
-    ctx.fillRect(this.x - this.w / 2 - 5, GROUND_Y - 3, this.w + 10, 3);
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = `rgba(255,100,255,${0.55 * pulse})`;
+    ctx.fillRect(this.x - this.w / 2 - 8, GROUND_Y - 4, this.w + 16, 4);
 
     // Sparks
     ctx.shadowBlur = 4;
@@ -1411,15 +1909,16 @@ class BossEnergyRain {
     this.maxLife = 90;
     this.drops = [];
     this.impacts = [];
-    const numDrops = 5 + Math.floor(Math.random() * 4);
+    triggerBossCinematic('spawn', 1.2);
+    const numDrops = 7 + Math.floor(Math.random() * 4);
     for (let i = 0; i < numDrops; i++) {
       this.drops.push({
         x: 40 + Math.random() * (W - 80),
         y: -20 - Math.random() * 60,
         targetY: GROUND_Y,
-        speed: 4 + Math.random() * 3,
+        speed: 4.6 + Math.random() * 3.2,
         hit: false,
-        radius: 25 + Math.random() * 15,
+        radius: 36 + Math.random() * 20,
         delay: i * 6
       });
     }
@@ -1443,6 +1942,7 @@ class BossEnergyRain {
           const dx = Math.abs((player.x + player.w / 2) - d.x);
           if (dx < d.radius && player.y + player.h >= GROUND_Y - 10) {
             player.takeHit(BOSS_RAIN_DAMAGE);
+            triggerBossCinematic('impact', 1.25);
           }
         }
       }
@@ -1466,7 +1966,7 @@ class BossEnergyRain {
       if (this.life < d.delay || d.hit) return;
       const progress = Math.min(1, (d.targetY - d.y) / 200);
       ctx.strokeStyle = `rgba(255,0,100,${0.3 + 0.3 * (1 - progress)})`;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.4;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
       ctx.arc(d.x, GROUND_Y, d.radius, 0, Math.PI * 2);
@@ -1477,11 +1977,11 @@ class BossEnergyRain {
     // Falling energy bolts
     this.drops.forEach(d => {
       if (this.life < d.delay || d.hit) return;
-      const boltH = 20;
+      const boltH = 30;
       ctx.shadowColor = '#ff00ff';
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 14;
       ctx.strokeStyle = '#ff80ff';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(d.x, d.y - boltH);
       ctx.lineTo(d.x, d.y);
@@ -1494,21 +1994,21 @@ class BossEnergyRain {
       ctx.lineTo(d.x, d.y);
       ctx.stroke();
 
-      const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, 12);
+      const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, 18);
       g.addColorStop(0, 'rgba(255,0,255,0.4)');
       g.addColorStop(1, 'rgba(255,0,255,0)');
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(d.x, d.y, 12, 0, Math.PI * 2);
+      ctx.arc(d.x, d.y, 18, 0, Math.PI * 2);
       ctx.fill();
     });
 
     // Impact explosions
     this.impacts.forEach(imp => {
       ctx.shadowColor = '#ff0066';
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = 18;
       ctx.strokeStyle = `rgba(255,0,150,${imp.alpha})`;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.8;
       ctx.beginPath();
       ctx.arc(imp.x, GROUND_Y, imp.radius, 0, Math.PI * 2);
       ctx.stroke();
@@ -1701,7 +2201,7 @@ function updateP1Super() {
     const ecx = enemy.x + enemy.w / 2;
     if (Math.abs(ecx - pcx) <= P1_SUPER_AOE_RADIUS) {
       const raw = Math.floor(enemy.maxHealth * P1_SUPER_HP_FRACTION) + P1_SUPER_FLAT;
-      const dmg = Math.min(95, Math.max(40, raw));
+      const dmg = Math.min(95, Math.max(40, scaleP1Damage(raw)));
       enemy.takeHit(dmg);
       sndP1SuperImpact();
     }
@@ -1890,6 +2390,7 @@ let aiPreferredRange = 80;
 function updateEnemyAI(dt) {
   if (!enemy || state !== 'playing') return;
 
+  const prevVx = enemy.vx;
   enemy.vx = 0;
 
   const distX = player.x - enemy.x;
@@ -1917,7 +2418,8 @@ function updateEnemyAI(dt) {
   if (bossPhase >= 2) {
     aiPreferredRange = healthPct > 0.5 ? 130 : healthPct > 0.25 ? 110 : 90;
   } else {
-    aiPreferredRange = healthPct > 0.5 ? 75 : healthPct > 0.25 ? 100 : 60;
+    // Phase 1: keep more mid-range spacing; don't glue to P1.
+    aiPreferredRange = healthPct > 0.6 ? 140 : healthPct > 0.3 ? 125 : 105;
   }
 
   // State machine transitions
@@ -1971,14 +2473,20 @@ function updateEnemyAI(dt) {
   const circleMax = bossPhase >= 2 ? 180 : 140;
   const retreatDist = bossPhase >= 2 ? 200 : 150;
 
+  aiMeleeCommitTimer--;
+
   if (aiState === 'chase') {
     if (absDist > aiPreferredRange) {
       enemy.vx = dirToPlayer * aiSpeed;
-    } else if (absDist > 40) {
+    } else if (bossPhase >= 2 && absDist > 40) {
       enemy.vx = dirToPlayer * aiSpeed * 0.35;
+    } else if (bossPhase < 2 && absDist < aiPreferredRange - 20) {
+      enemy.vx = -dirToPlayer * aiSpeed * 0.35;
     }
-    // Phase 2: stop chasing when close enough, don't stick
-    if (bossPhase >= 2 && absDist < 60) {
+    // Phase 2: avoid sticking to player at point-blank range.
+    if (bossPhase >= 2 && absDist < 38) {
+      enemy.vx = -dirToPlayer * aiSpeed * 0.75;
+    } else if (bossPhase >= 2 && absDist < 60) {
       enemy.vx = 0;
     }
   } else if (aiState === 'circle') {
@@ -1987,8 +2495,18 @@ function updateEnemyAI(dt) {
     } else if (absDist < circleMin) {
       enemy.vx = -dirToPlayer * aiSpeed * 0.8;
     } else {
-      const strafeDir = Math.sin(bgOffset * 0.07 + Math.cos(bgOffset * 0.03) * 2);
-      enemy.vx = (strafeDir > 0 ? 1 : -1) * aiSpeed * 0.6;
+      if (bossPhase >= 2) {
+        const strafeDir = Math.sin(bgOffset * 0.07 + Math.cos(bgOffset * 0.03) * 2);
+        enemy.vx = (strafeDir > 0 ? 1 : -1) * aiSpeed * 0.6;
+      } else {
+        // Phase 1: keep strafe direction for a short window to avoid jitter.
+        aiStrafeTimer--;
+        if (aiStrafeTimer <= 0) {
+          aiStrafeDir = Math.random() < 0.5 ? -1 : 1;
+          aiStrafeTimer = 24 + Math.random() * 22;
+        }
+        enemy.vx = aiStrafeDir * aiSpeed * 0.55;
+      }
     }
   } else if (aiState === 'retreat') {
     if (absDist < retreatDist) {
@@ -2000,10 +2518,21 @@ function updateEnemyAI(dt) {
       }
     }
   } else if (aiState === 'aggressive') {
-    if (absDist > 45) {
-      enemy.vx = dirToPlayer * aiSpeed * 1.4;
-    } else {
-      enemy.vx = dirToPlayer * aiSpeed * 0.3;
+    if (bossPhase < 2 && aiMeleeCommitTimer <= 0) {
+      // In phase 1, only close in during short commit windows.
+      if (Math.random() < 0.035 && absDist < 170) {
+        aiMeleeCommitTimer = 28 + Math.random() * 18;
+      } else if (absDist < 120) {
+        enemy.vx = -dirToPlayer * aiSpeed * 0.45;
+      }
+    }
+
+    if (aiMeleeCommitTimer > 0 || bossPhase >= 2) {
+      if (absDist > 45) {
+        enemy.vx = dirToPlayer * aiSpeed * 1.4;
+      } else {
+        enemy.vx = dirToPlayer * aiSpeed * 0.3;
+      }
     }
   } else if (aiState === 'punish') {
     if (absDist > 40) {
@@ -2023,6 +2552,15 @@ function updateEnemyAI(dt) {
   if (enemy.x < 20) enemy.vx = Math.max(enemy.vx, aiSpeed * 0.5);
   if (enemy.x > W - 60) enemy.vx = Math.min(enemy.vx, -aiSpeed * 0.5);
 
+  // Phase 1 only: smooth horizontal acceleration to reduce twitchy movement.
+  if (bossPhase < 2 && enemy.onGround) {
+    const maxStep = aiSpeed * 0.22;
+    const delta = enemy.vx - prevVx;
+    if (delta > maxStep) enemy.vx = prevVx + maxStep;
+    else if (delta < -maxStep) enemy.vx = prevVx - maxStep;
+    if (Math.abs(enemy.vx) < 0.05) enemy.vx = 0;
+  }
+
   // Attack logic — varies by state and distance
   aiAttackTimer--;
   if (aiAttackTimer <= 0 && !enemy.attacking) {
@@ -2032,7 +2570,7 @@ function updateEnemyAI(dt) {
     if (aiState === 'punish' && absDist < 90) {
       shouldAttack = true;
       nextCooldown = 20 + Math.random() * 20;
-    } else if (aiState === 'aggressive' && absDist < 100) {
+    } else if (aiState === 'aggressive' && absDist < 100 && (bossPhase >= 2 || aiMeleeCommitTimer > 0 || absDist < 62)) {
       shouldAttack = true;
       // Combo: rapid successive hits
       if (aiComboCount < 2 + Math.floor(Math.random() * 2)) {
@@ -2045,7 +2583,7 @@ function updateEnemyAI(dt) {
     } else if (aiState === 'bait' && absDist < 80 && Math.sin(bgOffset * 0.1) > 0.2) {
       shouldAttack = true;
       nextCooldown = 60 + Math.random() * 50;
-    } else if ((aiState === 'chase' || aiState === 'circle') && absDist < 100 && absDist > 30) {
+    } else if ((aiState === 'chase' || aiState === 'circle') && absDist < 110 && absDist > 18) {
       shouldAttack = true;
       nextCooldown = 80 + Math.random() * 60;
     }
@@ -2053,6 +2591,29 @@ function updateEnemyAI(dt) {
     if (shouldAttack) {
       enemy.attack();
       aiAttackTimer = bossPhase >= 2 ? nextCooldown * 0.65 : nextCooldown;
+      if (bossPhase < 2) aiMeleeCommitTimer = 0;
+    }
+  }
+
+  // Phase 2 anti-stall: if too close and not attacking, force quick reposition.
+  if (bossPhase >= 2 && !enemy.attacking && absDist < 24) {
+    enemy.vx = -dirToPlayer * aiSpeed * 1.1;
+    if (aiState !== 'retreat' && Math.random() < 0.2) {
+      aiState = 'retreat';
+      aiStateTimer = 20 + Math.random() * 20;
+    }
+  }
+
+  // Phase 1 ranged pressure: boss occasionally shoots at medium/long range.
+  aiRangedTimer--;
+  if (bossPhase < 2 && aiRangedTimer <= 0 && !enemy.attacking && enemy.onGround) {
+    const hasClearRange = absDist > 130 && absDist < 320;
+    const lowProjectileDensity = projectiles.filter(p => p.owner === enemy && p.alive).length < 1;
+    if (hasClearRange && lowProjectileDensity && Math.random() < 0.75) {
+      enemy.queueRangedShot(enemy.facingRight);
+      aiRangedTimer = 95 + Math.random() * 65;
+    } else {
+      aiRangedTimer = 28 + Math.random() * 20;
     }
   }
 
@@ -2076,8 +2637,15 @@ function updateEnemyAI(dt) {
     const projDist = Math.abs(proj.x - enemy.x);
     const projApproaching = proj.dirRight ? (proj.x < enemy.x) : (proj.x > enemy.x);
     if (projDist < 120 && projApproaching && enemy.onGround && aiDodgeCooldown <= 0) {
-      enemy.jump();
-      aiDodgeCooldown = 50;
+      // Do not always dodge projectiles: add reaction chance.
+      const dodgeChance = bossPhase >= 2 ? 0.62 : 0.45;
+      if (Math.random() < dodgeChance) {
+        enemy.jump();
+        aiDodgeCooldown = 50;
+      } else {
+        // Small hesitation window so the AI doesn't re-roll every frame.
+        aiDodgeCooldown = 18;
+      }
       break;
     }
   }
@@ -2122,8 +2690,9 @@ function updateEnemyAI(dt) {
       if (powerRoll < 0.35) {
         // Projectile at player
         const px = enemy.facingRight ? enemy.x + enemy.w + 10 : enemy.x - 10;
-        const py = enemy.y + enemy.h * 0.3;
+        const py = enemy.y + enemy.h * 0.16;
         bossPowers.push(new BossProjectile(px, py, enemy.facingRight));
+        enemy.triggerAnim('shot');
         sndBossShoot();
         bossPowerTimer = BOSS_POWER_COOLDOWN * 0.6;
       } else if (powerRoll < 0.65) {
@@ -2364,7 +2933,7 @@ function initBackground() {
   if (!bgImage) {
     bgImage = new Image();
     bgImage.onload = () => { bgImageLoaded = true; };
-    bgImage.src = 'assets/fight/ChatGPT Image 18 de abr. de 2026, 09_02_13.png';
+    bgImage.src = 'assets/fight/Cenario_001.png';
   }
 
   if (!bgImageP2InitDone) {
@@ -2394,6 +2963,20 @@ function initBackground() {
       r: 20 + Math.random() * 40,
       vx: -0.15 + Math.random() * 0.3,
       alpha: 0.02 + Math.random() * 0.04
+    });
+  }
+
+  bgEmbers = [];
+  for (let i = 0; i < 42; i++) {
+    bgEmbers.push({
+      x: Math.random() * W,
+      y: GROUND_Y + Math.random() * (H - GROUND_Y + 20),
+      vy: 0.5 + Math.random() * 1.8,
+      vx: (Math.random() - 0.5) * 0.45,
+      size: 1 + Math.random() * 2.4,
+      alpha: 0.25 + Math.random() * 0.55,
+      life: 40 + Math.random() * 70,
+      maxLife: 40 + Math.random() * 70
     });
   }
 
@@ -2429,27 +3012,6 @@ function renderBackground(ctx) {
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, H);
   }
-
-  // --- Ground neon line (gameplay reference) ---
-  ctx.save();
-  ctx.strokeStyle = '#f0f';
-  ctx.lineWidth = 2;
-  ctx.shadowColor = '#f0f';
-  ctx.shadowBlur = 16;
-  ctx.globalAlpha = 0.6;
-  ctx.beginPath();
-  ctx.moveTo(0, GROUND_Y);
-  ctx.lineTo(W, GROUND_Y);
-  ctx.stroke();
-  ctx.strokeStyle = '#0ff';
-  ctx.shadowColor = '#0ff';
-  ctx.shadowBlur = 8;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, GROUND_Y + 1);
-  ctx.lineTo(W, GROUND_Y + 1);
-  ctx.stroke();
-  ctx.restore();
 
   // --- Smoke / steam ---
   bgSmoke.forEach(s => {
@@ -2488,6 +3050,35 @@ function renderBackground(ctx) {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.04)';
   for (let y = 0; y < H; y += 3) {
     ctx.fillRect(0, y, W, 1);
+  }
+
+  // --- Phase 2: rising red embers from destroyed ground ---
+  if (bossPhase >= 2 && state !== 'phase_transition') {
+    bgEmbers.forEach(e => {
+      e.y -= e.vy;
+      e.x += e.vx + Math.sin((t + e.y) * 0.03) * 0.15;
+      e.life--;
+
+      if (e.life <= 0 || e.y < -20) {
+        e.x = Math.random() * W;
+        e.y = GROUND_Y + Math.random() * (H - GROUND_Y + 24);
+        e.vy = 0.55 + Math.random() * 2.1;
+        e.vx = (Math.random() - 0.5) * 0.5;
+        e.size = 1 + Math.random() * 2.6;
+        e.alpha = 0.25 + Math.random() * 0.6;
+        e.maxLife = 40 + Math.random() * 80;
+        e.life = e.maxLife;
+      }
+
+      const lifePct = e.life / e.maxLife;
+      ctx.save();
+      ctx.globalAlpha = e.alpha * Math.max(0, lifePct) * (0.7 + 0.3 * Math.sin(t * 0.2 + e.x * 0.05));
+      ctx.shadowColor = '#ff2a2a';
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = lifePct > 0.45 ? '#ff4b3a' : '#ffb36a';
+      ctx.fillRect(e.x, e.y, e.size, e.size * 1.8);
+      ctx.restore();
+    });
   }
 
   if (bossPhase >= 2 && state !== 'phase_transition') {
@@ -2729,10 +3320,10 @@ function renderHUD(ctx) {
     ctx.restore();
   }
 
-  // === SUPER METER BAR (below lives) ===
-  const superY = livesY + 16;
-  const superBarW = pBarW * 0.55;
-  const superBarH = 6;
+  // === ONDA GLITCH BAR (below lives, larger and slightly lower) ===
+  const superY = livesY + 22;
+  const superBarW = pBarW * 0.7;
+  const superBarH = 9;
   const superPct = superMeter / SUPER_MAX;
   const superFull = superMeter >= SUPER_MAX;
 
@@ -2782,9 +3373,9 @@ function renderHUD(ctx) {
     ctx.stroke();
   }
 
-  // Label — cyberpunk styled "SUPER"
+  // Label — cyberpunk styled power name
   const labelX = pBarX;
-  const labelY = superY - 4;
+  const labelY = superY - 6;
   ctx.textAlign = 'left';
 
   if (superFull) {
@@ -2792,57 +3383,107 @@ function renderHUD(ctx) {
     const glitchX = Math.random() < 0.1 ? (Math.random() - 0.5) * 4 : 0;
     const glitchY = Math.random() < 0.08 ? (Math.random() - 0.5) * 2 : 0;
 
-    // Chromatic aberration layers
-    ctx.font = `bold 8px ${HUD_FONT}`;
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = '#ff0055';
-    ctx.fillText('⚡ SUPER ⚡', labelX - 1 + glitchX, labelY + glitchY);
-    ctx.fillStyle = '#00ffff';
-    ctx.fillText('⚡ SUPER ⚡', labelX + 1 + glitchX, labelY + glitchY);
+    // Cinematic neon frame when full
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,210,120,${0.45 + 0.25 * pulse})`;
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = '#ffdd66';
+    ctx.shadowBlur = 14 + 8 * pulse;
+    ctx.strokeRect(pBarX - 3, superY - 2, superBarW + 6, superBarH + 4);
+    ctx.restore();
 
-    // Main text
+    // Chromatic text layers
+    ctx.font = `bold 8px ${HUD_FONT}`;
+    ctx.globalAlpha = 0.38;
+    ctx.fillStyle = '#ff3ca8';
+    ctx.fillText('⚡ OVERCLOCK NOVA ⚡', labelX - 1 + glitchX, labelY + glitchY);
+    ctx.fillStyle = '#00ffff';
+    ctx.fillText('⚡ OVERCLOCK NOVA ⚡', labelX + 1 + glitchX, labelY + glitchY);
+
+    // Main text with stronger glow
     ctx.globalAlpha = 1;
-    ctx.shadowColor = '#ffcc00';
-    ctx.shadowBlur = 14 * pulse;
-    ctx.fillStyle = `rgba(255,230,80,${0.8 + 0.2 * pulse})`;
-    ctx.fillText('⚡ SUPER ⚡', labelX + glitchX, labelY + glitchY);
+    ctx.shadowColor = '#ffd86a';
+    ctx.shadowBlur = 18 * pulse;
+    ctx.fillStyle = `rgba(255,238,120,${0.84 + 0.16 * pulse})`;
+    ctx.fillText('⚡ OVERCLOCK NOVA ⚡', labelX + glitchX, labelY + glitchY);
     ctx.shadowBlur = 0;
 
-    // Shine sweep
-    const sweepX = labelX + ((t * 2) % 80) - 10;
-    ctx.globalAlpha = 0.25;
+    // Dual shine sweep across bar
+    const sweepX = pBarX + ((t * 2.4) % (superBarW + 30)) - 15;
+    ctx.globalAlpha = 0.28;
     ctx.fillStyle = '#fff';
-    ctx.fillRect(sweepX, labelY - 7, 3, 9);
+    ctx.fillRect(sweepX, superY - 1, 4, superBarH + 2);
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#ffd7ff';
+    ctx.fillRect(sweepX - 9, superY, 3, superBarH);
+
+    // Small energy sparks over the bar
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < 4; i++) {
+      const sx = pBarX + ((t * (1.6 + i * 0.3) + i * 37) % superBarW);
+      const sy = superY - 2 + Math.sin(t * 0.18 + i) * 2;
+      ctx.fillStyle = i % 2 ? '#ffe37a' : '#9fffff';
+      ctx.fillRect(sx, sy, 2, 2);
+    }
     ctx.globalAlpha = 1;
   } else {
-    // Dim version with subtle neon
+    // Dim version with stronger visibility while charging
     ctx.font = `bold 7px ${HUD_FONT}`;
 
     // Subtle chromatic
-    ctx.globalAlpha = 0.15;
+    ctx.globalAlpha = 0.24;
     ctx.fillStyle = '#ff00ff';
-    ctx.fillText('SUPER', labelX - 0.5, labelY);
+    ctx.fillText('OVERCLOCK NOVA', labelX - 0.5, labelY);
     ctx.fillStyle = '#00ffff';
-    ctx.fillText('SUPER', labelX + 0.5, labelY);
+    ctx.fillText('OVERCLOCK NOVA', labelX + 0.5, labelY);
 
-    ctx.globalAlpha = 0.5 + superPct * 0.3;
+    ctx.globalAlpha = 0.65 + superPct * 0.25;
     ctx.shadowColor = '#a040ff';
-    ctx.shadowBlur = 3 + superPct * 5;
-    ctx.fillStyle = `rgba(180,120,255,${0.5 + superPct * 0.4})`;
-    ctx.fillText('SUPER', labelX, labelY);
+    ctx.shadowBlur = 5 + superPct * 6;
+    ctx.fillStyle = `rgba(210,150,255,${0.68 + superPct * 0.3})`;
+    ctx.fillText('OVERCLOCK NOVA', labelX, labelY);
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
 
     // Percentage indicator
     ctx.font = `5px ${HUD_FONT}`;
-    ctx.fillStyle = 'rgba(180,120,255,0.35)';
-    ctx.fillText(`${Math.floor(superPct * 100)}%`, labelX + superBarW - 18, labelY);
+    ctx.fillStyle = 'rgba(210,150,255,0.55)';
+    ctx.fillText(`${Math.floor(superPct * 100)}%`, labelX + superBarW - 20, labelY);
   }
   ctx.restore();
 
   // === ENEMY HEALTH (right → fills toward center) ===
   const ePct = enemy.health / enemy.maxHealth;
   drawHealthBar(ctx, eBarX, BAR_Y, eBarW, BAR_H, ePct, '#ff00ff', '#ff0044', 'rgba(255,0,255,0.7)', true);
+
+  // === BERSERKER HUD ALERT ===
+  if (isP1Berserker()) {
+    const bPulse = 0.5 + 0.5 * Math.sin(t * 0.32);
+    const blink = Math.sin(t * 0.5) > -0.15 ? 1 : 0.45;
+    const bx = W / 2;
+    const by = BAR_Y + BAR_H + 30;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+
+    // Glitch chroma shadows
+    ctx.font = `bold 8px ${HUD_FONT}`;
+    ctx.globalAlpha = 0.32 * blink;
+    ctx.fillStyle = '#ff0066';
+    ctx.fillText('MODO BERSERKER ONLINE', bx - 1.2, by);
+    ctx.fillStyle = '#00ffff';
+    ctx.fillText('MODO BERSERKER ONLINE', bx + 1.2, by);
+
+    // Main neon text
+    ctx.globalAlpha = 0.86 * blink;
+    ctx.shadowColor = '#ff2bcf';
+    ctx.shadowBlur = 12 + 8 * bPulse;
+    ctx.fillStyle = `rgba(255,150,220,${0.82 + 0.18 * bPulse})`;
+    ctx.fillText('MODO BERSERKER ONLINE', bx, by);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
 
   // Enemy label
   ctx.save();
@@ -2992,6 +3633,7 @@ function startGame() {
   gameFrameCount = 0;
   projectiles = [];
   energyFields = [];
+  groundWaves = [];
   bossTraps = [];
   bossTrapTimer = 0;
   bossPowers = [];
@@ -3000,7 +3642,9 @@ function startGame() {
   superMeter = 0;
   p1SuperFx = null;
   prevButtonX = false;
+  prevButtonB = false;
   showBossPhase2Background = false;
+  bossCineFx = { flash: 0, shake: 0, glitch: 0, bars: 0 };
   bossPhase = 1;
   phaseTransition = null;
   prePhase2Timer = 0;
@@ -3012,6 +3656,10 @@ function startGame() {
   
   aiAttackTimer = 90;
   aiJumpTimer = 60;
+  aiStrafeDir = 1;
+  aiStrafeTimer = 0;
+  aiRangedTimer = 70;
+  aiMeleeCommitTimer = 0;
   aiState = 'chase';
   aiStateTimer = 0;
   aiComboCount = 0;
@@ -3043,6 +3691,8 @@ function respawnPlayer() {
   player.dashTimer = 0;
   player.afterimages = [];
   player.burstCooldown = 0;
+  player.groundWaveCooldown = 0;
+  bossCineFx = { flash: 0, shake: 0, glitch: 0, bars: 0 };
   player.bfBuffer = [];
   player.stunTimer = 0;
   sndRespawn();
@@ -3655,6 +4305,18 @@ function checkWinCondition() {
       spawnPrePhase2Sequence();
       return true;
     }
+
+    // Phase 2: wait for enemy death animation to finish before victory screen.
+    const eDef = SPRITE_DEFS[enemy.charName];
+    const deadAnim = eDef?.animations?.dead;
+    if (deadAnim) {
+      enemy.vx = 0;
+      enemy.attacking = false;
+      enemy.attackFrame = 0;
+      const deadDone = enemy.currentAnim === 'dead' && enemy.spriteFrame >= deadAnim.count - 1;
+      if (!deadDone) return false;
+    }
+
     state = 'won';
     spawnVictoryFX();
     sndVictory();
@@ -3694,6 +4356,7 @@ function handleInput() {
   }
 
   const input = _inputRef;
+  const bPressed = !!input.buttonB;
 
   const bxPressed = !!input.buttonX;
   if (bxPressed && !prevButtonX && superMeter >= SUPER_MAX) {
@@ -3734,8 +4397,10 @@ function handleInput() {
     player.jump();
   }
   
-  if (input.down || input.buttonB) {
-    if (player.checkCombo(gameFrameCount)) {
+  if (bPressed && !prevButtonB) {
+    if (input.down) {
+      player.fireGroundWave();
+    } else if (player.checkCombo(gameFrameCount)) {
       player.fireSpecial();
       player.inputBuffer = [];
       player.bfBuffer = [];
@@ -3747,6 +4412,7 @@ function handleInput() {
       player.attack();
     }
   }
+  prevButtonB = bPressed;
   
   gameFrameCount++;
 }
@@ -3775,6 +4441,8 @@ const luta = {
   },
   
   update(dt) {
+    updateBossCinematic();
+
     if (state === 'idle') {
       // Advance sprite animation for idle display
       if (player) {
@@ -3842,7 +4510,7 @@ const luta = {
       updateEnemyAI(dt);
       
       if (checkHit(player, enemy)) {
-        enemy.takeHit(P1_ATTACK_DAMAGE);
+        enemy.takeHit(scaleP1Damage(P1_ATTACK_DAMAGE));
         superMeter = Math.min(SUPER_MAX, superMeter + 8);
       }
       if (checkHit(enemy, player)) {
@@ -3854,12 +4522,20 @@ const luta = {
       projectiles.forEach(p => {
         p.update();
         if (!p.alive) return;
+        if (p.exploding) return;
         const target = p.owner === player ? enemy : player;
         const pBox = p.getBox();
         const tBox = { x: target.x, y: target.y, w: target.w, h: target.h };
         if (checkCollision(pBox, tBox)) {
-          target.takeHit(P1_SPECIAL_DAMAGE);
-          p.alive = false;
+          const projDmg = p.owner === enemy ? P2_RANGED_DAMAGE : scaleP1Damage(P1_SPECIAL_DAMAGE);
+          target.takeHit(projDmg);
+          if (p.owner === enemy) {
+            p.exploding = true;
+            p.explodeFrame = 0;
+            p.explodeTick = 0;
+          } else {
+            p.alive = false;
+          }
           if (p.owner === player) superMeter = Math.min(SUPER_MAX, superMeter + 12);
         }
       });
@@ -3867,6 +4543,18 @@ const luta = {
       energyFields.forEach(ef => ef.update());
       energyFields = energyFields.filter(ef => ef.alive);
       projectiles = projectiles.filter(p => p.alive);
+      groundWaves.forEach(gw => gw.update());
+      groundWaves.forEach(gw => {
+        if (!gw.alive || gw.hitDone || !enemy) return;
+        const gBox = gw.getBox();
+        const eBox = { x: enemy.x, y: enemy.y, w: enemy.w, h: enemy.h };
+        if (checkCollision(gBox, eBox)) {
+          enemy.takeHit(scaleP1Damage(GROUND_WAVE_DAMAGE));
+          gw.hitDone = true;
+          superMeter = Math.min(SUPER_MAX, superMeter + 10);
+        }
+      });
+      groundWaves = groundWaves.filter(gw => gw.alive);
 
       bossTraps.forEach(bt => bt.update());
       bossTraps = bossTraps.filter(bt => bt.alive);
@@ -4010,8 +4698,10 @@ const luta = {
     
     // Render projectiles and boss powers
     projectiles.forEach(p => p.render(renderCtx));
+    groundWaves.forEach(gw => gw.render(renderCtx));
     energyFields.forEach(ef => ef.render(renderCtx));
     bossPowers.forEach(bp => bp.render(renderCtx));
+    renderBossCinematic(renderCtx);
     
     // Phase transition overlay
     if (state === 'phase_transition') {
@@ -4266,26 +4956,85 @@ const luta = {
   
   renderIdle(renderCtx) {
     renderBackground(renderCtx);
-    
-    // Render fighters in idle pose
-    if (enemy) enemy.render(renderCtx);
-    if (player) player.render(renderCtx);
-    
-    // Title
-    renderCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    renderCtx.fillRect(0, H / 2 - 80, W, 140);
-    
-    renderCtx.fillStyle = '#0ff';
-    renderCtx.font = 'bold 64px monospace';
-    renderCtx.textAlign = 'center';
-    renderCtx.shadowColor = '#0ff';
-    renderCtx.shadowBlur = 20;
-    renderCtx.fillText('LUTA', W / 2, H / 2);
+
+    const t = bgOffset;
+    const pulse = 0.55 + 0.45 * Math.sin(t * 0.07);
+    const cx = W / 2;
+    const panelY = H / 2 - 102;
+    const panelH = 184;
+
+    renderCtx.save();
+
+    // Cinematic dark panel
+    const panelGrad = renderCtx.createLinearGradient(0, panelY, 0, panelY + panelH);
+    panelGrad.addColorStop(0, 'rgba(6, 4, 22, 0.8)');
+    panelGrad.addColorStop(0.5, 'rgba(12, 8, 30, 0.86)');
+    panelGrad.addColorStop(1, 'rgba(3, 2, 14, 0.82)');
+    renderCtx.fillStyle = panelGrad;
+    renderCtx.fillRect(0, panelY, W, panelH);
+
+    // Neon frame
+    renderCtx.strokeStyle = `rgba(0,255,255,${0.25 + 0.2 * pulse})`;
+    renderCtx.lineWidth = 1.6;
+    renderCtx.shadowColor = '#00ffff';
+    renderCtx.shadowBlur = 12 * pulse;
+    renderCtx.strokeRect(14, panelY + 14, W - 28, panelH - 28);
     renderCtx.shadowBlur = 0;
-    
-    renderCtx.fillStyle = '#fff';
-    renderCtx.font = '18px monospace';
-    renderCtx.fillText('Press any button to fight', W / 2, H / 2 + 50);
+    renderCtx.strokeStyle = `rgba(255,0,200,${0.2 + 0.16 * pulse})`;
+    renderCtx.lineWidth = 1;
+    renderCtx.strokeRect(20, panelY + 20, W - 40, panelH - 40);
+
+    // Occasional glitch bars
+    for (let i = 0; i < 3; i++) {
+      if (Math.sin(t * 0.19 + i * 1.7) > 0.78) {
+        const gy = panelY + 26 + ((t * (1.8 + i * 0.25) + i * 29) % (panelH - 52));
+        renderCtx.globalAlpha = 0.12 + i * 0.03;
+        renderCtx.fillStyle = i % 2 ? '#ff00b7' : '#00ffff';
+        renderCtx.fillRect(22, gy, W - 44, 2 + (i % 2));
+      }
+    }
+    renderCtx.globalAlpha = 1;
+
+    // Subtitle
+    renderCtx.textAlign = 'center';
+    renderCtx.font = '10px monospace';
+    renderCtx.fillStyle = `rgba(170,255,255,${0.7 + 0.25 * pulse})`;
+    renderCtx.fillText('CYBERPUNK ARENA PROTOCOL v2.0', cx, panelY + 34);
+
+    // Main title with chromatic glitch
+    const glitchX = Math.sin(t * 0.22) > 0.9 ? (Math.random() - 0.5) * 6 : 0;
+    const glitchY = Math.sin(t * 0.28) > 0.94 ? (Math.random() - 0.5) * 3 : 0;
+    renderCtx.font = 'bold 58px monospace';
+    renderCtx.globalAlpha = 0.24;
+    renderCtx.fillStyle = '#ff0048';
+    renderCtx.fillText('GLITCH FIGHTERS', cx - 2 + glitchX, panelY + 94 + glitchY);
+    renderCtx.fillStyle = '#003bff';
+    renderCtx.fillText('GLITCH FIGHTERS', cx + 2 + glitchX, panelY + 94 + glitchY);
+
+    renderCtx.globalAlpha = 1;
+    renderCtx.shadowColor = '#00ffff';
+    renderCtx.shadowBlur = 22 * pulse;
+    renderCtx.fillStyle = `rgba(170,255,255,${0.86 + 0.14 * pulse})`;
+    renderCtx.fillText('GLITCH FIGHTERS', cx + glitchX, panelY + 94 + glitchY);
+    renderCtx.shadowBlur = 0;
+
+    renderCtx.globalAlpha = 0.35;
+    renderCtx.fillStyle = '#ffffff';
+    renderCtx.fillText('GLITCH FIGHTERS', cx + glitchX, panelY + 94 + glitchY);
+    renderCtx.globalAlpha = 1;
+
+    // Flavor text
+    renderCtx.font = '12px monospace';
+    renderCtx.fillStyle = `rgba(255,140,240,${0.65 + 0.25 * Math.sin(t * 0.09)})`;
+    renderCtx.fillText('BRAWL. BREAK. BECOME DATA.', cx, panelY + 122);
+
+    // Start prompt
+    const promptA = 0.42 + 0.5 * Math.sin(t * 0.11);
+    renderCtx.font = '15px monospace';
+    renderCtx.fillStyle = `rgba(255,255,255,${promptA})`;
+    renderCtx.fillText('Press any button to enter the arena', cx, panelY + 154);
+
+    renderCtx.restore();
     renderCtx.textAlign = 'left';
   },
   

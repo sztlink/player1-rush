@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blueprint Arena - Glitch Fighters</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0a0a14;
+      color: #d8e7ff;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 16px;
+    }
+    canvas {
+      border: 2px solid #4cf;
+      image-rendering: pixelated;
+      background: #000;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    button {
+      background: #1b1f35;
+      color: #dff;
+      border: 1px solid #4cf;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>Blueprint - Arena Glitch Fighters</h2>
+  <canvas id="bp" width="640" height="480"></canvas>
+  <div class="row">
+    <button id="download">Baixar PNG</button>
+    <span>Resolução: 640x480 | Chão (GROUND_Y): 380 | Margens de colisão: 10px</span>
+  </div>
+
+  <script>
+    const W = 640;
+    const H = 480;
+    const GROUND_Y = 380;
+    const MARGIN = 10;
+    const ctx = document.getElementById("bp").getContext("2d");
+
+    function line(x1, y1, x2, y2, color, lw = 1, alpha = 1) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lw;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function label(text, x, y, color = "#fff", align = "left") {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.font = "11px monospace";
+      ctx.textAlign = align;
+      ctx.fillText(text, x, y);
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Fundo
+      const bg = ctx.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, "#101530");
+      bg.addColorStop(0.55, "#1b1c3d");
+      bg.addColorStop(1, "#0d1022");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Grade 32px
+      for (let x = 0; x <= W; x += 32) line(x, 0, x, H, "#46b", 1, 0.25);
+      for (let y = 0; y <= H; y += 32) line(0, y, W, y, "#46b", 1, 0.25);
+
+      // Limite da tela
+      line(0, 0, W, 0, "#9ef", 2, 0.9);
+      line(0, H, W, H, "#9ef", 2, 0.9);
+      line(0, 0, 0, H, "#9ef", 2, 0.9);
+      line(W, 0, W, H, "#9ef", 2, 0.9);
+
+      // Linha do chão (lógica do jogo)
+      line(0, GROUND_Y, W, GROUND_Y, "#ff5fb4", 2, 1);
+      ctx.fillStyle = "rgba(255,95,180,0.08)";
+      ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+
+      // Área útil horizontal de luta (margens de 10px)
+      line(MARGIN, 0, MARGIN, H, "#ffd166", 2, 0.95);
+      line(W - MARGIN, 0, W - MARGIN, H, "#ffd166", 2, 0.95);
+      ctx.fillStyle = "rgba(255,209,102,0.08)";
+      ctx.fillRect(MARGIN, 0, W - MARGIN * 2, H);
+
+      // Faixa recomendada para "plataforma/chão visual"
+      const platformTop = GROUND_Y - 18;
+      const platformH = 44;
+      ctx.fillStyle = "rgba(0,255,255,0.10)";
+      ctx.fillRect(0, platformTop, W, platformH);
+      line(0, platformTop, W, platformTop, "#00ffff", 2, 0.9);
+      line(0, platformTop + platformH, W, platformTop + platformH, "#00ffff", 2, 0.5);
+
+      // Centro
+      line(W / 2, 0, W / 2, H, "#f0f", 1, 0.6);
+
+      // Textos
+      label("CANVAS 640x480", 8, 16, "#bff");
+      label(`GROUND_Y = ${GROUND_Y}`, 8, GROUND_Y - 6, "#ff8fd2");
+      label(`MARGEM COLISÃO ESQ = ${MARGIN}px`, MARGIN + 6, 32, "#ffd166");
+      label(`MARGEM COLISÃO DIR = ${MARGIN}px`, W - MARGIN - 6, 32, "#ffd166", "right");
+      label("FAIXA RECOMENDADA DA PLATAFORMA (visual)", 8, platformTop - 6, "#7ff");
+      label("CENTRO DA ARENA", W / 2, 16, "#f8f", "center");
+
+      // Anotações de pixels úteis para arte
+      label("Topo sugerido da arte do chão", 8, platformTop + 14, "#8ff");
+      label("Linha exata de contato dos personagens", 8, GROUND_Y + 14, "#ffb6df");
+    }
+
+    draw();
+
+    document.getElementById("download").addEventListener("click", () => {
+      const link = document.createElement("a");
+      link.download = "blueprint_luta_plataforma_640x480.png";
+      link.href = document.getElementById("bp").toDataURL("image/png");
+      link.click();
+    });
+  </script>
+</body>
+</html>
